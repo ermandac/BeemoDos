@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+
+# Virtual Environment
+venv/
+env/
+.env
+.venv
+
+# Machine Learning
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+*.model
+
+# Spectrogram and Audio Temp Files
+*.wav
+*.mp3
+*.png
+spectrograms/
+temp_recordings/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Tensorflow/Keras
+*.tfrecord
+*.tfmodel
+
+# Logs and Databases
+*.sqlite
+*.log.*
+
+# Sensitive Information
+secrets.json
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Project Specific Ignores
+config/secrets.yml
