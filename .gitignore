@@ -10,26 +10,43 @@ local_settings.py
 db.sqlite3
 db.sqlite3-journal
 media/
+uploads/
+recordings/
+
+# Media and Audio Files
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.aac
+*.m4a
+*.webm
+
+# Image and Spectrogram Files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+spectrograms/
+temp_recordings/
+
+# Machine Learning Models and Data
+# Ignore training models directory completely
+training_models/
+**/*.keras
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+*.model
+model_checkpoints/
 
 # Virtual Environment
 venv/
 env/
 .env
 .venv
-
-# Machine Learning
-*.h5
-*.hdf5
-*.pkl
-*.joblib
-*.model
-
-# Spectrogram and Audio Temp Files
-*.wav
-*.mp3
-*.png
-spectrograms/
-temp_recordings/
 
 # IDE and Editor Files
 .vscode/
@@ -44,10 +61,6 @@ Thumbs.db
 
 # Jupyter Notebooks
 .ipynb_checkpoints
-
-# Tensorflow/Keras
-*.tfrecord
-*.tfmodel
 
 # Logs and Databases
 *.sqlite
