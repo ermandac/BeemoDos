@@ -3,29 +3,30 @@
 ## Project Overview
 BeemoDos is a Django-based web application designed to analyze bee audio recordings, generate spectrograms, and provide insights into bee behavior using machine learning.
 
-## Features
-- Real-time audio recording
+## Key Components
+- Audio recording functionality
 - Spectrogram generation
-- Machine learning-based bee behavior analysis
-- Web interface for easy interaction
+- Machine learning model inference for bee behavior detection
 
 ## Prerequisites
 - Python 3.9+
 - pip
 - virtualenv (recommended)
+- Git
+- FFmpeg (for audio processing)
 
 ## Setup Instructions
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/yourusername/BeemoDos.git
+git clone https://github.com/ermandac/BeemoDos.git
 cd BeemoDos
 ```
 
 ### 2. Create Virtual Environment
 ```bash
 python3 -m venv venv
-source venv/bin/activate
+source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
 ```
 
 ### 3. Install Dependencies
@@ -33,30 +34,58 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Set Up Database
+### 4. Set Up Environment Variables
+Create a `.env` file in the project root with the following content:
+```
+SECRET_KEY=your_django_secret_key
+DEBUG=True
+```
+
+### 5. Set Up Database
 ```bash
 python manage.py migrate
 ```
 
-### 5. Run Development Server
+### 6. Create Superuser (Optional)
+```bash
+python manage.py createsuperuser
+```
+
+### 7. Run Development Server
 ```bash
 python manage.py runserver
 ```
 
-## Machine Learning Model
-Place your pre-trained `.keras` model in the `ml_models/` directory with the name `bee_behavior_model.keras`.
+## Machine Learning Models
+- Pre-trained models are excluded from the repository
+- Place your machine learning models in the `training_models/` directory
+- Supported model formats: `.keras`, `.h5`, `.pkl`
+
+## Development Workflow
+- Always work in a virtual environment
+- Install new dependencies with `pip install` and update `requirements.txt`
+- Run tests before committing: `python manage.py test`
+
+## Project Structure
+- `audio_analyzer/`: Core audio analysis logic
+- `frontend/`: Web interface components
+- `predictors/`: Machine learning model inference
+- `training_models/`: (Gitignored) Machine learning model storage
 
 ## Contributing
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
+
+## Troubleshooting
+- Ensure all dependencies are installed
+- Check Django and Python versions compatibility
+- Verify audio processing dependencies (FFmpeg)
 
 ## License
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ## Contact
-Your Name - your.email@example.com
-
-Project Link: [https://github.com/yourusername/BeemoDos](https://github.com/yourusername/BeemoDos)
+Project Link: [https://github.com/ermandac/BeemoDos](https://github.com/ermandac/BeemoDos)
