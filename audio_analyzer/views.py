@@ -15,6 +15,7 @@ from django.core.files.storage import default_storage
 from scipy.io import wavfile
 import json
 import soundfile as sf
+import re
 
 import tensorflow as tf
 from datetime import datetime
@@ -24,6 +25,9 @@ sys.path.append(os.path.join(settings.BASE_DIR, 'predictors'))
 import BNBpredictor
 import QNQpredictor
 import TOOTpredictor
+
+# Import Discord utilities
+from .discord_utils import send_discord_message
 
 logger = logging.getLogger(__name__)
 
@@ -357,11 +361,49 @@ def record_and_generate_spectrograms(request):
             all_recordings[predictor] = predictor_recordings
             all_spectrograms[predictor] = predictor_spectrograms
 
-            # Perform analysis (placeholder - replace with actual analysis)
-            analysis_results[predictor] = {
-                'recording_count': num_recordings,
-                'status': 'Processed successfully'
-            }
+        # Collect all spectrogram paths for analysis
+        all_spectrogram_paths = []
+        for predictor, paths in all_spectrograms.items():
+            # Convert from media URL to relative path
+            for path in paths:
+                rel_path = path.replace(settings.MEDIA_URL, '')
+                all_spectrogram_paths.append(rel_path)
+        
+        # Initialize analysis_results with default values
+        analysis_results = {
+            'BNQ': {'predicted_class': 0, 'confidence': 0.0, 'label': 'No Analysis', 'f1_score': 0.0, 'precision': 0.0, 'raw_result': [0, 0, 0, 0]},
+            'QNQ': {'predicted_class': 0, 'confidence': 0.0, 'label': 'No Analysis', 'f1_score': 0.0, 'precision': 0.0, 'raw_result': [0, 0, 0, 0]},
+            'TOOT': {'predicted_class': 0, 'confidence': 0.0, 'label': 'No Analysis', 'f1_score': 0.0, 'precision': 0.0, 'raw_result': [0, 0, 0, 0]}
+        }
+        
+        # Analyze the spectrograms and send Discord notification
+        if all_spectrogram_paths:
+            logger.info(f"Calling analyze_audio with {len(all_spectrogram_paths)} spectrograms")
+            
+            # Create a mock request with the spectrogram paths in the body
+            class MockRequest:
+                method = 'POST'
+                body = json.dumps({'spectrograms': all_spectrogram_paths}).encode('utf-8')
+            
+            # Call analyze_audio
+            try:
+                logger.info(f"About to call analyze_audio with paths: {all_spectrogram_paths}")
+                analysis_response = analyze_audio(MockRequest())
+                logger.info(f"analyze_audio response status: {analysis_response.status_code}")
+                
+                # Debug the response content
+                response_content = analysis_response.content.decode('utf-8')
+                logger.info(f"Raw response content: {response_content}")
+                
+                analysis_data = json.loads(response_content)
+                analysis_results = analysis_data.get('analysis_results', {})
+                
+                logger.info(f"Analysis completed: {json.dumps(analysis_results, indent=2)}")
+            except Exception as analysis_error:
+                logger.error(f"Error in analysis: {analysis_error}")
+                logger.error(traceback.format_exc())
+        else:
+            logger.warning("No spectrograms available for analysis")
 
         # Return successful response
         return JsonResponse({
@@ -434,8 +476,18 @@ def analyze_audio(request):
         # Process each predictor
         for predictor in predictors:
             try:
-                # Predict using the specific predictor
-                result = predictor['function'](spectrograms[0])
+                # Convert relative path to absolute path if needed
+                spectrogram_path = spectrograms[0]
+                if not os.path.isabs(spectrogram_path):
+                    spectrogram_path = os.path.join(settings.MEDIA_ROOT, spectrogram_path)
+                
+                # Ensure the file exists before prediction
+                if not os.path.exists(spectrogram_path):
+                    logger.error(f"Spectrogram file not found: {spectrogram_path}")
+                    raise FileNotFoundError(f"Spectrogram file not found: {spectrogram_path}")
+                
+                logger.info(f"Predicting {predictor['name']} using file: {spectrogram_path}")
+                result = predictor['function'](spectrogram_path)
                 
                 # Log raw result for debugging
                 logger.info(f"{predictor['name']} Raw Result: {result}")
@@ -458,7 +510,7 @@ def analyze_audio(request):
                 # Store results with explicit type conversion
                 analysis_results[predictor['name']] = {
                     'predicted_class': int(predicted_class),
-                    'confidence': float(confidence),
+                    'confidence': float(confidence) * 100,  # Multiply by 100 for frontend display
                     'label': predictor['labels'][int(predicted_class)],
                     'f1_score': float(f1),
                     'precision': float(precision),
@@ -468,17 +520,239 @@ def analyze_audio(request):
                 logger.error(f"{predictor['name']} prediction error: {e}")
                 analysis_results[predictor['name']] = {
                     'predicted_class': 0,
-                    'confidence': 0.0,
+                    'confidence': 0.0,  # Keep as 0.0 for failed predictions
                     'label': 'Prediction Failed',
                     'error': str(e)
                 }
 
+        # Send notification to Discord with analysis results
+        try:
+            # Format the message with prediction results in JSON-like format
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            message = "**BeemoDos Analysis Results** - " + timestamp + "\n"
+            message += "```json\n{"
+            
+            # Add BNB result if available
+            if 'BNQ' in analysis_results:
+                message += '\n  "BNB Prediction": {'
+                message += '\n    "File": "' + (spectrograms[0] if spectrograms else "Unknown") + '",'  
+                message += '\n    "Predicted": "' + analysis_results["BNQ"]["label"] + '",'  
+                message += '\n    "Confidence": ' + str(analysis_results["BNQ"]["confidence"]) + ','  
+                message += '\n    "Predicted Class": ' + str(analysis_results["BNQ"]["predicted_class"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results["BNQ"]["f1_score"]) + ','  
+                message += '\n    "Precision": ' + str(analysis_results["BNQ"]["precision"]) + ''  
+                message += '\n  }'
+            
+            # Add QNQ result if available
+            if 'QNQ' in analysis_results:
+                if 'BNQ' in analysis_results:  # Add comma if BNQ was included
+                    message += ","
+                message += '\n  "QNQ Prediction": {'
+                message += '\n    "File": "' + (spectrograms[0] if spectrograms else "Unknown") + '",'  
+                message += '\n    "Predicted": "' + analysis_results["QNQ"]["label"] + '",'  
+                message += '\n    "Confidence": ' + str(analysis_results["QNQ"]["confidence"]) + ','  
+                message += '\n    "Predicted Class": ' + str(analysis_results["QNQ"]["predicted_class"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results["QNQ"]["f1_score"]) + ','  
+                message += '\n    "Precision": ' + str(analysis_results["QNQ"]["precision"]) + ''  
+                message += '\n  }'
+            
+            # Add TOOT result if available
+            if 'TOOT' in analysis_results:
+                if 'BNQ' in analysis_results or 'QNQ' in analysis_results:  # Add comma if previous results were included
+                    message += ","
+                message += '\n  "TOOT Prediction": {'
+                message += '\n    "File": "' + (spectrograms[0] if spectrograms else "Unknown") + '",'  
+                message += '\n    "Predicted": "' + analysis_results["TOOT"]["label"] + '",'  
+                message += '\n    "Confidence": ' + str(analysis_results["TOOT"]["confidence"]) + ','  
+                message += '\n    "Predicted Class": ' + str(analysis_results["TOOT"]["predicted_class"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results["TOOT"]["f1_score"]) + ','  
+                message += '\n    "Precision": ' + str(analysis_results["TOOT"]["precision"]) + ''  
+                message += '\n  }'
+            
+            message += '\n}\n```\n'
+            
+            # Add recording analysis information
+            message += "**Recording Analysis**\n"
+            message += "Date: " + datetime.now().strftime("%Y-%m-%d") + "\n"
+            message += "Time: " + datetime.now().strftime("%H:%M:%S") + "\n"
+            
+            # Try to extract frequency information if available
+            try:
+                # Calculate frequency information from the audio file
+                if spectrograms and len(spectrograms) > 0:
+                    # Get the audio file path from the spectrogram path
+                    spectrogram_path = spectrograms[0]
+                    logger.info(f"Attempting frequency analysis for spectrogram: {spectrogram_path}")
+                    
+                    # Extract session directory from spectrogram path
+                    # Format appears to be: recordings/20250313_152709/BNQ_spectrogram_1.png
+                    match = re.match(r'recordings/(\d+_\d+)/', spectrogram_path)
+                    if match:
+                        session_dir = match.group(1)
+                        audio_dir = os.path.join(settings.MEDIA_ROOT, 'recordings', session_dir)
+                        logger.info(f"Looking for audio files in: {audio_dir}")
+                        
+                        # Look for WAV files in the session directory
+                        if os.path.exists(audio_dir):
+                            audio_files = [f for f in os.listdir(audio_dir) if f.endswith('.wav')]
+                            logger.info(f"Found audio files in {audio_dir}: {audio_files}")
+                            
+                            if audio_files:
+                                # Use the first audio file found
+                                audio_path = os.path.join(audio_dir, audio_files[0])
+                                logger.info(f"Using audio file for analysis: {audio_path}")
+                                
+                                # Load the audio file
+                                sample_rate, samples = wavfile.read(audio_path)
+                                
+                                # Convert stereo to mono if needed
+                                if len(samples.shape) > 1 and samples.shape[1] > 1:
+                                    samples = np.mean(samples, axis=1)
+                                
+                                # Perform FFT
+                                fft_data = np.fft.rfft(samples)
+                                freqs = np.fft.rfftfreq(len(samples), 1/sample_rate)
+                                
+                                # Filter out low-frequency noise (below 20 Hz)
+                                MIN_FREQUENCY = 20
+                                mask = np.abs(freqs) >= MIN_FREQUENCY
+                                filtered_freqs = freqs[mask]
+                                filtered_fft = np.abs(fft_data[mask])
+                                
+                                # Compute frequency statistics
+                                if len(filtered_freqs) > 0 and len(filtered_fft) > 0:
+                                    # Find the index of the maximum amplitude in the filtered FFT data
+                                    max_idx = np.argmax(filtered_fft)
+                                    peak_freq = filtered_freqs[max_idx]
+                                    avg_freq = np.mean(np.abs(filtered_freqs))
+                                    
+                                    # Compute RMS amplitude for activity classification
+                                    rms_amplitude = np.sqrt(np.mean(samples**2)) / 32768.0
+                                    
+                                    # Classify activity level based on frequency and amplitude
+                                    if avg_freq < 100:
+                                        base_level = "Low"
+                                    elif 100 <= avg_freq <= 300:
+                                        base_level = "Normal"
+                                    elif 300 < avg_freq <= 500:
+                                        base_level = "High"
+                                    else:
+                                        base_level = "Chaotic"
+                                    
+                                    # Amplitude-based refinement
+                                    if rms_amplitude < 0.1:
+                                        activity = f"Very {base_level}"
+                                    elif 0.1 <= rms_amplitude < 0.3:
+                                        activity = f"{base_level}"
+                                    elif 0.3 <= rms_amplitude < 0.6:
+                                        activity = f"Intense {base_level}"
+                                    else:
+                                        activity = f"Extremely {base_level}"
+                                    
+                                    # Add frequency information to the message
+                                    message += "Frequency Data: Average " + str(avg_freq) + "Hz, Peak " + str(peak_freq) + "Hz\n"
+                                    message += "Activity Level: " + activity + " Activity\n"
+                                    
+                                    logger.info(f"Frequency analysis complete: Avg={avg_freq}Hz, Peak={peak_freq}Hz, Activity={activity}")
+                                else:
+                                    logger.warning("No valid frequency data found after filtering")
+                                    message += "Frequency Data: No valid frequency data found\n"
+                                    message += "Activity Level: Unknown\n"
+                            else:
+                                logger.warning(f"No audio files found in directory: {audio_dir}")
+                                message += "Frequency Data: No audio files found\n"
+                                message += "Activity Level: Unknown\n"
+                        else:
+                            logger.warning(f"Audio directory not found: {audio_dir}")
+                            message += "Frequency Data: Audio directory not found\n"
+                            message += "Activity Level: Unknown\n"
+                    else:
+                        logger.warning(f"Could not extract session directory from path: {spectrogram_path}")
+                        message += "Frequency Data: Could not locate audio file\n"
+                        message += "Activity Level: Unknown\n"
+                else:
+                    logger.warning("No spectrograms available for frequency analysis")
+                    message += "Frequency Data: No spectrograms available\n"
+                    message += "Activity Level: Unknown\n"
+            except Exception as e:
+                logger.error(f"Error in frequency analysis: {e}")
+                logger.error(traceback.format_exc())
+                message += "Frequency Data: Error during analysis\n"
+                message += "Activity Level: Unknown\n"
+            
+            # Add interpretation and recommendations based on predictions
+            message += "\n**Interpretation & Recommendations**\n"
+            
+            # BNQ interpretation
+            if 'BNQ' in analysis_results:
+                bnq_class = analysis_results['BNQ']['predicted_class']
+                bnq_confidence = analysis_results['BNQ']['confidence']
+                if bnq_class == 1 and bnq_confidence > 50:
+                    message += "**Bees Detected**: Hive is active. Continue regular monitoring.\n"
+                else:
+                    message += "**Low Bee Activity**: Consider checking for potential issues.\n"
+            
+            # QNQ interpretation
+            if 'QNQ' in analysis_results:
+                qnq_class = analysis_results['QNQ']['predicted_class']
+                qnq_confidence = analysis_results['QNQ']['confidence']
+                if qnq_class == 1 and qnq_confidence > 50:
+                    message += "**Queen Detected**: Queen is present and active.\n"
+                else:
+                    message += "**No Queen Detected**: Consider checking queen status.\n"
+            
+            # TOOT interpretation
+            if 'TOOT' in analysis_results:
+                toot_class = analysis_results['TOOT']['predicted_class']
+                toot_confidence = analysis_results['TOOT']['confidence']
+                if toot_class == 1 and toot_confidence > 50:
+                    message += "**Tooting Detected**: Potential queen emergence or competition.\n"
+                else:
+                    message += "**No Tooting**: Normal hive sounds detected.\n"
+            
+            # Add link to web interface
+            message += "\n[View Full Analysis on BeemoDos Dashboard](http://localhost:8000/audio_analyzer/)\n"
+            
+            # Get the path to the spectrogram image
+            spectrogram_path = None
+            if spectrograms and len(spectrograms) > 0:
+                spectrogram_path = os.path.join(settings.MEDIA_ROOT, spectrograms[0])
+            
+            # Send the message to Discord
+            discord_result = send_discord_message(message, spectrogram_path)
+            if discord_result:
+                logger.info("Successfully sent analysis results to Discord")
+            else:
+                logger.error("Failed to send analysis results to Discord")
+                logger.error(f"Discord message: {message}")
+                logger.error(f"Spectrogram path: {spectrogram_path}")
+        except Exception as discord_error:
+            logger.error(f"Error sending Discord notification: {discord_error}")
+            # Continue processing even if Discord notification fails
+
         # Prepare final response with additional metadata
+        # Convert NumPy types to native Python types for JSON serialization
+        serializable_results = {}
+        for predictor_name, predictor_data in analysis_results.items():
+            serializable_results[predictor_name] = {}
+            for key, value in predictor_data.items():
+                # Convert NumPy types to native Python types
+                if hasattr(value, 'item') and callable(getattr(value, 'item')):
+                    serializable_results[predictor_name][key] = value.item()
+                elif isinstance(value, (list, tuple)):
+                    # Convert each item in the list/tuple if needed
+                    serializable_results[predictor_name][key] = [
+                        item.item() if hasattr(item, 'item') and callable(getattr(item, 'item')) else item
+                        for item in value
+                    ]
+                else:
+                    serializable_results[predictor_name][key] = value
+        
         response_data = {
             'success': True,
             'recording_count': 1,  # Assuming single recording
             'status': 'Processed successfully',
-            'analysis_results': analysis_results
+            'analysis_results': serializable_results
         }
 
         # Log the entire response for verification
@@ -494,3 +768,54 @@ def analyze_audio(request):
             'status': 'Processing failed',
             'error': str(e)
         }, status=500)
+
+@csrf_exempt
+def send_discord_notification(request):
+    """
+    API endpoint to send a notification to Discord
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
+        
+    try:
+        data = json.loads(request.body)
+        message = data.get('message', '')
+        image_path = data.get('image_path', None)
+        
+        if not message:
+            return JsonResponse({'success': False, 'error': 'Message is required'}, status=400)
+        
+        # Validate image path if provided
+        if image_path and not os.path.exists(image_path):
+            return JsonResponse({'success': False, 'error': 'Image file not found'}, status=404)
+        
+        # Send to Discord
+        result = send_discord_message(message, image_path)
+        
+        if result:
+            return JsonResponse({'success': True})
+        else:
+            return JsonResponse({'success': False, 'error': 'Failed to send message'}, status=500)
+    except Exception as e:
+        logger.error(f'Error in send_discord_notification: {e}')
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+@csrf_exempt
+def test_discord(request):
+    """
+    Simple endpoint to test Discord notification
+    """
+    try:
+        logger.info("Testing Discord notification")
+        message = "This is a test message from BeemoDos at " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Send the message to Discord
+        result = send_discord_message(message)
+        
+        if result:
+            return JsonResponse({'success': True, 'message': 'Discord notification sent successfully'})
+        else:
+            return JsonResponse({'success': False, 'message': 'Failed to send Discord notification'}, status=500)
+    except Exception as e:
+        logger.error(f"Error in test_discord: {e}")
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)

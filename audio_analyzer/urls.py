@@ -24,4 +24,10 @@ urlpatterns = [
     
     # Predictors analysis page
     path('predictors/', views.predictors_view, name='predictors'),
+    
+    # Discord notification endpoint
+    path('send-discord-notification/', views.send_discord_notification, name='send_discord_notification'),
+    
+    # Test Discord notification endpoint
+    path('test-discord/', views.test_discord, name='test_discord'),
 ]

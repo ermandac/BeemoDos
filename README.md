@@ -15,6 +15,38 @@ BeemoDos is a Django-based web application designed to analyze bee audio recordi
 - Git
 - FFmpeg (for audio processing)
 
+## System Dependencies
+### Ubuntu/Debian
+```bash
+# Audio processing dependencies
+sudo apt-get update
+sudo apt-get install -y \
+    portaudio19-dev \
+    python3-pyaudio \
+    ffmpeg \
+    libsndfile1
+```
+
+### Fedora/RHEL
+```bash
+# Audio processing dependencies
+sudo dnf install -y \
+    portaudio-devel \
+    python3-pyaudio \
+    ffmpeg \
+    libsndfile
+```
+
+### macOS (using Homebrew)
+```bash
+# Audio processing dependencies
+brew install portaudio ffmpeg libsndfile
+```
+
+### Windows
+- Download and install PortAudio from the official website
+- Ensure FFmpeg is added to system PATH
+
 ## Setup Instructions
 
 ### 1. Clone the Repository
@@ -72,20 +104,7 @@ python manage.py runserver
 - `predictors/`: Machine learning model inference
 - `training_models/`: (Gitignored) Machine learning model storage
 
-## Contributing
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
 ## Troubleshooting
 - Ensure all dependencies are installed
 - Check Django and Python versions compatibility
 - Verify audio processing dependencies (FFmpeg)
-
-## License
-Distributed under the MIT License. See `LICENSE` for more information.
-
-## Contact
-Project Link: [https://github.com/ermandac/BeemoDos](https://github.com/ermandac/BeemoDos)
