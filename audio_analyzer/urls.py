@@ -30,4 +30,7 @@ urlpatterns = [
     
     # Test Discord notification endpoint
     path('test-discord/', views.test_discord, name='test_discord'),
+    
+    # Model retraining endpoint
+    path('audio_analyzer/retrain-model/', views.retrain_model, name='retrain_model'),
 ]

@@ -8,6 +8,10 @@ load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Ensure logs directory exists
+LOGS_DIR = os.path.join(BASE_DIR, 'logs')
+os.makedirs(LOGS_DIR, exist_ok=True)
+
 # Quick-start development settings - unsuitable for production
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'development_secret_key_change_in_production')
 
@@ -105,16 +109,37 @@ ML_MODEL_PATH = BASE_DIR / 'ml_models' / 'bee_behavior_model.keras'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'handlers': {
-        'console': {
-            'class': 'logging.StreamHandler',
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {module} {message}',
+            'style': '{',
+        },
+        'blynk_formatter': {
+            'format': '[{levelname}] {asctime} BLYNK: {message}',
+            'style': '{',
         },
     },
-    'root': {
-        'handlers': ['console'],
-        'level': 'INFO',
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose'
+        },
+        'blynk_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOGS_DIR, 'blynk_notifications.log'),
+            'maxBytes': 1024 * 1024 * 5,  # 5 MB
+            'backupCount': 3,
+            'formatter': 'blynk_formatter'
+        },
     },
     'loggers': {
+        'audio_analyzer.blynk_utils': {
+            'handlers': ['console', 'blynk_file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
         'django': {
             'handlers': ['console'],
             'level': 'INFO',
@@ -127,6 +152,14 @@ LOGGING = {
         },
     },
 }
+
+# Blynk Configuration
+BLYNK_ENABLED = os.getenv('BLYNK_ENABLED', 'True').lower() == 'true'
+BLYNK_AUTH = os.getenv('BLYNK_AUTH', 'G_3XV39JoVt7eCZnkqwdKP0dlvflgKHG')
+BLYNK_SERVER = os.getenv('BLYNK_SERVER', 'sgp1.blynk.cloud')
+BLYNK_PORT = int(os.getenv('BLYNK_PORT', 443))
+BLYNK_TEMPLATE_ID = os.getenv('BLYNK_TEMPLATE_ID', 'TMPL6O5U7uAp0')
+BLYNK_TEMPLATE_NAME = os.getenv('BLYNK_TEMPLATE_NAME', 'Hive Audio Analysis')
 
 # Discord Integration
 DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN', 'MTMxMzM0ODk1NzkwODM3MzUxNA.GNgp-A.uQrvCg9yMBvq8zG3oHhKEPqhPJvv3J7Ja0OPPs')

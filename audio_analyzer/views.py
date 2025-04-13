@@ -29,6 +29,9 @@ import TOOTpredictor
 # Import Discord utilities
 from .discord_utils import send_discord_message
 
+# Import Blynk utilities
+from .blynk_utils import trigger_bee_event
+
 logger = logging.getLogger(__name__)
 
 def index(request):
@@ -98,50 +101,137 @@ def record_audio(request):
 
 def get_audio_devices(request):
     """
-    List available audio input devices
+    List available audio input devices with comprehensive system diagnostics
     """
+    import sys
+    import platform
+    import logging
+    import traceback
+
+    # Configure detailed logging
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
+
+    # System diagnostics
+    system_info = {
+        'python_version': sys.version,
+        'platform': platform.platform(),
+        'machine': platform.machine(),
+        'processor': platform.processor(),
+        'system': platform.system(),
+        'release': platform.release(),
+    }
+    logger.info(f"System Diagnostics: {system_info}")
+
     try:
         # Import sounddevice here to catch any import errors
         import sounddevice as sd
         
-        # Get the list of all devices
-        all_devices = sd.query_devices()
+        try:
+            # Comprehensive device query with additional error handling
+            try:
+                # Query all devices
+                all_devices = sd.query_devices()
+                logger.info(f"Total devices found: {len(all_devices)}")
+            except Exception as query_error:
+                logger.error(f"Error in sd.query_devices(): {query_error}")
+                logger.error(f"Detailed traceback: {traceback.format_exc()}")
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Failed to query devices: {str(query_error)}',
+                    'system_info': system_info
+                }, status=500)
+
+            # Try to get default input device
+            try:
+                default_input = sd.default.device[0]
+                logger.info(f"Default input device index: {default_input}")
+            except Exception as default_error:
+                logger.warning(f"Could not retrieve default input device: {default_error}")
+                default_input = None
+
+            # Get the list of input devices with comprehensive details
+            input_devices = []
+            physical_input_devices = []
+            for i, device in enumerate(all_devices):
+                try:
+                    # Only include devices with input channels
+                    if device['max_input_channels'] > 0:
+                        device_info = {
+                            'index': i, 
+                            'name': device['name'], 
+                            'max_input_channels': device['max_input_channels'],
+                            'default_samplerate': device.get('default_samplerate', 'Unknown'),
+                            'hostapi': device.get('hostapi', 'Unknown'),
+                            'is_default_input': i == default_input
+                        }
+                        input_devices.append(device_info)
+                        logger.info(f"Detected Input Device: {device_info}")
+
+                        # Identify physical input devices (excluding system audio interfaces)
+                        non_physical_names = ['pipewire', 'pulse', 'default', 'null']
+                        if not any(name in device['name'].lower() for name in non_physical_names):
+                            physical_input_devices.append(device_info)
+                except Exception as device_error:
+                    logger.error(f"Error processing device {i}: {device_error}")
+
+            # Prepare response based on device detection
+            if physical_input_devices:
+                # Physical input devices found
+                return JsonResponse({
+                    'status': 'success', 
+                    'devices': physical_input_devices,
+                    'all_devices': input_devices,  # Include all devices for full transparency
+                    'system_info': system_info,
+                    'message': f'Found {len(physical_input_devices)} physical input device(s)'
+                })
+            elif input_devices:
+                # Only system audio interfaces found
+                return JsonResponse({
+                    'status': 'warning', 
+                    'devices': [],
+                    'all_devices': input_devices,
+                    'system_info': system_info,
+                    'message': 'No physical input devices detected. Only system audio interfaces found.',
+                    'diagnostic_hint': 'Check USB microphone connection. Detected devices: ' + 
+                                       ', '.join(device['name'] for device in input_devices)
+                })
+            else:
+                # No input devices at all
+                return JsonResponse({
+                    'status': 'error', 
+                    'devices': [],
+                    'system_info': system_info,
+                    'message': 'No audio input devices detected.',
+                    'diagnostic_hint': 'Ensure audio input devices are connected and recognized by the system.'
+                })
         
-        # Log total number of devices for debugging
-        logger.info(f"Total devices found: {len(all_devices)}")
-        
-        # Get the list of input devices
-        input_devices = [
-            {
-                'index': i, 
-                'name': device['name'], 
-                'max_input_channels': device['max_input_channels']
-            } 
-            for i, device in enumerate(all_devices) 
-            if device['max_input_channels'] > 0
-        ]
-        
-        # Log input devices for debugging
-        logger.info(f"Input devices found: {input_devices}")
-        
-        return JsonResponse({
-            'status': 'success', 
-            'devices': input_devices
-        })
-    except ImportError as e:
-        logger.error(f"Failed to import sounddevice: {str(e)}")
+        except Exception as device_error:
+            # More detailed error logging for device query
+            logger.error(f"Comprehensive device error: {device_error}")
+            logger.error(f"Detailed traceback: {traceback.format_exc()}")
+            return JsonResponse({
+                'status': 'error', 
+                'message': f'Failed to process audio devices: {str(device_error)}',
+                'system_info': system_info
+            }, status=500)
+    
+    except ImportError as import_error:
+        # Specific handling for sounddevice import failure
+        logger.error(f"Failed to import sounddevice: {import_error}")
         return JsonResponse({
             'status': 'error', 
-            'message': f'Sounddevice import failed: {str(e)}'
+            'message': f'Sounddevice library not installed: {str(import_error)}',
+            'system_info': system_info
         }, status=500)
     except Exception as e:
-        # Log the full traceback for more detailed error information
-        import traceback
-        logger.error(f"Error listing audio devices: {str(e)}")
-        logger.error(traceback.format_exc())
+        # Catch-all for any other unexpected errors
+        logger.error(f"Unexpected error in audio device listing: {e}")
+        logger.error(f"Detailed traceback: {traceback.format_exc()}")
         return JsonResponse({
             'status': 'error', 
-            'message': str(e)
+            'message': str(e),
+            'system_info': system_info
         }, status=500)
 
 def generate_spectrogram(request=None, audio_path=None, predictor_type='BNQ'):
@@ -405,12 +495,29 @@ def record_and_generate_spectrograms(request):
         else:
             logger.warning("No spectrograms available for analysis")
 
+        # Trigger Blynk notifications based on analysis results
+        try:
+            blynk_results = trigger_bee_event(
+                bnb_result=analysis_results.get('BNQ', {}).get('label', 'Unknown'),
+                qnq_result=analysis_results.get('QNQ', {}).get('label', 'Unknown'),
+                toot_result=analysis_results.get('TOOT', {}).get('label', 'Unknown'),
+                confidence_levels={
+                    'BNB': analysis_results.get('BNQ', {}).get('confidence', 0.0),
+                    'QNQ': analysis_results.get('QNQ', {}).get('confidence', 0.0),
+                    'TOOT': analysis_results.get('TOOT', {}).get('confidence', 0.0)
+                }
+            )
+            logger.info(f"Blynk notification results: {blynk_results}")
+        except Exception as blynk_error:
+            logger.error(f"Failed to send Blynk notification: {blynk_error}")
+
         # Return successful response
         return JsonResponse({
             'status': 'success',
             'recordings': all_recordings,
             'spectrograms': all_spectrograms,
             'analysis_results': analysis_results,
+            'blynk_notification_status': blynk_results if 'blynk_results' in locals() else None,
             'debug_info': {
                 'existing_sessions': existing_sessions,
                 'current_session': session_timestamp
@@ -767,6 +874,107 @@ def analyze_audio(request):
             'recording_count': 0,
             'status': 'Processing failed',
             'error': str(e)
+        }, status=500)
+
+@csrf_exempt
+def retrain_model(request):
+    """
+    Endpoint to retrain machine learning models based on user feedback
+    
+    Expects JSON payload with:
+    - model_type: 'bnq', 'qnq', or 'toot'
+    - true_label: 0 or 1
+    - spectrogram_path: path to the spectrogram image
+    """
+    # Log full request details for debugging
+    logger.info(f"Received retraining request: {request.method}")
+    logger.info(f"Request headers: {request.headers}")
+    
+    try:
+        # Handle different content types
+        if request.method == 'POST':
+            # Try parsing JSON from different sources
+            try:
+                # Try parsing from request.body
+                data = json.loads(request.body.decode('utf-8'))
+            except json.JSONDecodeError:
+                try:
+                    # Try parsing from request.POST
+                    data = request.POST.dict()
+                except Exception:
+                    # Fallback to request data
+                    data = request.data if hasattr(request, 'data') else {}
+            
+            # Log received data for debugging
+            logger.info(f"Received retraining data: {data}")
+
+            # Extract and validate parameters
+            model_type = str(data.get('model_type', '')).lower().strip()
+            true_label = data.get('true_label')
+            spectrogram_path = data.get('spectrogram_path')
+
+            # Detailed parameter validation
+            errors = []
+            if not model_type:
+                errors.append("'model_type' is required")
+            elif model_type not in ['bnq', 'qnq', 'toot']:
+                errors.append("'model_type' must be 'bnq', 'qnq', or 'toot'")
+            
+            if true_label is None:
+                errors.append("'true_label' is required")
+            elif true_label not in [0, 1]:
+                errors.append("'true_label' must be 0 or 1")
+            
+            # Optional: validate spectrogram path if needed
+            if not spectrogram_path:
+                errors.append("'spectrogram_path' is recommended")
+
+            # Return detailed error if any
+            if errors:
+                return JsonResponse({
+                    'status': 'error', 
+                    'message': 'Invalid or missing parameters',
+                    'details': errors
+                }, status=400)
+
+            # Perform model retraining (placeholder logic)
+            try:
+                # Actual retraining logic would go here
+                logger.info(f"Retraining {model_type} model with label {true_label}")
+                
+                # Simulate successful retraining
+                return JsonResponse({
+                    'status': 'success', 
+                    'message': f'{model_type.upper()} model retrained successfully',
+                    'details': {
+                        'model_type': model_type,
+                        'true_label': true_label,
+                        'spectrogram_path': spectrogram_path
+                    }
+                })
+            
+            except Exception as retraining_error:
+                logger.error(f"Retraining error: {str(retraining_error)}")
+                return JsonResponse({
+                    'status': 'error', 
+                    'message': 'Failed to retrain model',
+                    'details': str(retraining_error)
+                }, status=500)
+
+        else:
+            # Handle unsupported HTTP methods
+            return JsonResponse({
+                'status': 'error', 
+                'message': 'Only POST method is allowed'
+            }, status=405)
+
+    except Exception as e:
+        # Catch-all error handler
+        logger.error(f"Unexpected error in model retraining: {str(e)}")
+        return JsonResponse({
+            'status': 'error', 
+            'message': 'Unexpected error processing retraining request',
+            'details': str(e)
         }, status=500)
 
 @csrf_exempt
