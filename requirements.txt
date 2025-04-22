@@ -52,7 +52,7 @@ discord.py>=2.3.0
 aiohttp>=3.9.0  # For async Discord operations
 
 # Blynk Integration
-blynk-library>=1.0.0
+blynk-library-python==0.2.0
 
 # Scheduling and System Utilities
 systemd-python>=235  # For systemd timer integration (optional)
