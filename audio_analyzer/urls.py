@@ -10,6 +10,9 @@ urlpatterns = [
     # Audio recording endpoint
     path('record/', views.record_audio, name='record_audio'),
     
+    # New: Record and Analyze Audio endpoint
+    path('record-analyze/', views.record_and_analyze_audio, name='record_and_analyze_audio'),
+    
     # Spectrogram generation endpoint
     path('spectrogram/', views.generate_spectrogram, name='generate_spectrogram'),
     

@@ -16,7 +16,7 @@ from scipy.io import wavfile
 import json
 import soundfile as sf
 import re
-import traceback  # Add this import
+import traceback
 
 import tensorflow as tf
 from datetime import datetime
@@ -32,6 +32,9 @@ from .discord_utils import send_discord_message
 
 # Import Blynk utilities
 from .blynk_utils import blynk_connection
+
+# Import Google Sheets utility
+from .sheets_utils import save_frequency_to_sheets
 
 logger = logging.getLogger(__name__)
 
@@ -1301,3 +1304,96 @@ def trigger_blynk_event(bnb_result, qnq_result, toot_result=None,
         logger.error(f"Comprehensive error in trigger_blynk_event: {e}")
         logger.error(traceback.format_exc())
         return False
+
+def analyze_audio_frequency(audio_path, sample_rate):
+    """
+    Perform frequency analysis on the recorded audio
+    
+    :param audio_path: Path to the audio file
+    :param sample_rate: Sampling rate of the audio
+    :return: Dictionary of frequency analysis results
+    """
+    try:
+        # Load audio file
+        y, sr = librosa.load(audio_path, sr=sample_rate)
+        
+        # Compute spectral features
+        spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        spectral_bandwidth = librosa.feature.spectral_bandwidth(y=y, sr=sr)[0]
+        spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
+        
+        # Compute dominant frequency
+        fft = np.fft.fft(y)
+        frequencies = np.fft.fftfreq(len(y), 1/sr)
+        dominant_freq_index = np.argmax(np.abs(fft[:len(fft)//2]))
+        dominant_frequency = frequencies[dominant_freq_index]
+        
+        # Compute frequency range
+        frequency_range = (np.min(frequencies[frequencies > 0]), np.max(frequencies))
+        
+        # Prepare frequency data for Google Sheets
+        frequency_data = {
+            'dominant_frequency': round(dominant_frequency, 2),
+            'frequency_range': f"{round(frequency_range[0], 2)} - {round(frequency_range[1], 2)}",
+            'spectral_centroid': round(np.mean(spectral_centroid), 2),
+            'spectral_bandwidth': round(np.mean(spectral_bandwidth), 2),
+            'spectral_rolloff': round(np.mean(spectral_rolloff), 2)
+        }
+        
+        # Save frequency data to Google Sheets
+        save_frequency_to_sheets(frequency_data)
+        
+        return frequency_data
+    
+    except Exception as e:
+        logger.error(f"Frequency analysis error: {str(e)}")
+        return None
+
+@csrf_exempt
+def record_and_analyze_audio(request):
+    """
+    Record audio and perform frequency analysis
+    """
+    try:
+        # Get device and recording parameters from request
+        device_index = int(request.POST.get('device', 0))
+        duration = float(request.POST.get('duration', 5))  # seconds
+        sample_rate = int(request.POST.get('sample_rate', 44100))  # Hz
+        
+        # Record audio from specified device
+        recording = sd.rec(
+            int(duration * sample_rate), 
+            samplerate=sample_rate, 
+            channels=1, 
+            dtype='float64',
+            device=device_index
+        )
+        sd.wait()
+        
+        # Save recording
+        audio_filename = f'bee_recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
+        audio_path = os.path.join(settings.MEDIA_ROOT, audio_filename)
+        
+        # Ensure media directory exists
+        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+        
+        # Write audio file using scipy
+        wavfile.write(audio_path, sample_rate, (recording * 32767).astype(np.int16))
+        
+        # Perform frequency analysis
+        frequency_results = analyze_audio_frequency(audio_path, sample_rate)
+        
+        return JsonResponse({
+            'status': 'success', 
+            'message': 'Audio recorded and analyzed successfully',
+            'filename': audio_filename,
+            'device': device_index,
+            'frequency_analysis': frequency_results
+        })
+    
+    except Exception as e:
+        logger.error(f"Audio recording and analysis error: {str(e)}")
+        return JsonResponse({
+            'status': 'error', 
+            'message': str(e)
+        }, status=500)

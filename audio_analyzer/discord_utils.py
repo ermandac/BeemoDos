@@ -2,14 +2,56 @@ import discord
 import asyncio
 import logging
 import os
+import json
 from django.conf import settings
 
 logger = logging.getLogger('audio_analyzer.discord_utils')
 
-async def send_discord_message_async(message, image_path=None):
+def format_discord_notification(prediction_data, frequency_data=None):
+    """
+    Format a detailed Discord notification with prediction and frequency data
+    
+    :param prediction_data: Dictionary containing prediction information
+    :param frequency_data: Dictionary containing frequency analysis information
+    :return: Formatted notification message
+    """
+    # Prepare base prediction information
+    notification = {
+        "Prediction": {
+            "Model": prediction_data.get('model', 'Unknown'),
+            "Filename": prediction_data.get('filename', 'N/A'),
+            "Result": prediction_data.get('prediction', 'N/A'),
+            "Confidence": f"{prediction_data.get('confidence', 0):.2%}"
+        }
+    }
+    
+    # Add frequency data if available
+    if frequency_data:
+        notification["Frequency Analysis"] = {
+            "Dominant Frequency": frequency_data.get('dominant_frequency', 'N/A'),
+            "Frequency Range": frequency_data.get('frequency_range', 'N/A'),
+            "Spectral Centroid": frequency_data.get('spectral_centroid', 'N/A'),
+            "Spectral Bandwidth": frequency_data.get('spectral_bandwidth', 'N/A'),
+            "Spectral Rolloff": frequency_data.get('spectral_rolloff', 'N/A')
+        }
+    
+    # Convert to formatted JSON-like string
+    formatted_message = "🐝 BeemoDos Analysis Report 🐝\n"
+    formatted_message += "```json\n"
+    formatted_message += json.dumps(notification, indent=2)
+    formatted_message += "\n```"
+    
+    return formatted_message
+
+async def send_discord_message_async(message, image_path=None, prediction_data=None, frequency_data=None):
     """
     Send a message to a Discord channel without running a full bot.
     This function should be called from an async context or with asyncio.run()
+    
+    :param message: Optional custom message
+    :param image_path: Optional path to an image to attach
+    :param prediction_data: Optional prediction data for detailed notification
+    :param frequency_data: Optional frequency analysis data
     """
     try:
         # Get Discord configuration from settings
@@ -49,61 +91,62 @@ async def send_discord_message_async(message, image_path=None):
                         logger.info(f'Successfully fetched channel: {channel.name}')
                     except Exception as fetch_error:
                         logger.error(f'Error fetching channel: {fetch_error}')
-                        await client.close()
                         return
                 
-                logger.info(f'Found channel: {channel.name}')
+                # Prepare the message
+                if prediction_data:
+                    # Use formatted notification if prediction data is provided
+                    discord_message = format_discord_notification(
+                        prediction_data, 
+                        frequency_data
+                    )
+                else:
+                    # Use default or custom message
+                    discord_message = message or "No message provided"
                 
                 # Send the message
-                logger.info(f'Sending message: {message[:50]}...')
-                await channel.send(message)
+                await channel.send(discord_message)
                 
-                # Send the image if provided
+                # Send image if provided
                 if image_path and os.path.exists(image_path):
-                    logger.info(f'Sending image: {image_path}')
                     await channel.send(file=discord.File(image_path))
                 
                 message_sent = True
-                logger.info('Message sent successfully')
+                logger.info("Discord message sent successfully")
+            
             except Exception as e:
-                logger.error(f'Error sending message to Discord: {e}')
+                logger.error(f"Error sending Discord message: {e}")
             finally:
-                # Close the connection
-                logger.info('Closing Discord connection')
                 await client.close()
         
-        # Connect to Discord
-        logger.info(f'Starting Discord client with token starting with {token[:5]}...')
+        # Run the client
         await client.start(token)
-        logger.info(f'Discord client stopped, message_sent={message_sent}')
-        return message_sent
         
+        return message_sent
+    
     except Exception as e:
-        logger.error(f'Error in Discord connection: {e}')
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Unexpected error in send_discord_message_async: {e}")
         return False
 
-def send_discord_message(message, image_path=None):
+def send_discord_message(message, image_path=None, prediction_data=None, frequency_data=None):
     """
-    Synchronous wrapper around send_discord_message_async for use in Django views
+    Synchronous wrapper for async Discord message sending
+    
+    :param message: Optional custom message
+    :param image_path: Optional path to an image to attach
+    :param prediction_data: Optional prediction data for detailed notification
+    :param frequency_data: Optional frequency analysis data
+    :return: Boolean indicating message sending success
     """
     try:
-        # Log the attempt
-        logger.info(f"Attempting to send Discord message")
-        logger.info(f"Discord token length: {len(settings.DISCORD_BOT_TOKEN) if settings.DISCORD_BOT_TOKEN else 0}")
-        logger.info(f"Discord channel ID: {settings.DISCORD_CHANNEL_ID}")
-        
-        if not settings.DISCORD_BOT_TOKEN or settings.DISCORD_CHANNEL_ID == 0:
-            logger.error("Discord configuration missing. Check DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID in settings.")
-            return False
-        
-        if image_path:
-            logger.info(f"Image path provided: {image_path}")
-            logger.info(f"Image exists: {os.path.exists(image_path)}")
-        
-        # Run the async function in a new event loop
-        return asyncio.run(send_discord_message_async(message, image_path))
+        return asyncio.run(
+            send_discord_message_async(
+                message, 
+                image_path, 
+                prediction_data, 
+                frequency_data
+            )
+        )
     except Exception as e:
-        logger.error(f"Error in send_discord_message: {e}")
+        logger.error(f"Error running async Discord message: {e}")
         return False
