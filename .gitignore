@@ -73,5 +73,9 @@ secrets.json
 .env.test.local
 .env.production.local
 
+# Credentials
+*_sheets_credentials.json
+Beemo-Sheets-Credentials.json
+
 # Project Specific Ignores
 config/secrets.yml

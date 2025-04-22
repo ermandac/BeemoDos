@@ -6,6 +6,7 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import f1_score, precision_score
+from audio_analyzer.sheets_utils import save_prediction_to_sheets
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -98,6 +99,15 @@ def QNQpredictor(img_path, output_box=None):
 
         # Logging instead of GUI output
         logger.info(f'File: {os.path.basename(img_path)}, Predicted: {class_names[predicted_class]}, Confidence: {confidence * 100:.2f}%')
+
+        # Save prediction to Google Sheets
+        prediction_data = {
+            'model': 'QNQ',
+            'filename': os.path.basename(img_path),
+            'prediction': class_names[predicted_class],
+            'confidence': float(confidence)
+        }
+        save_prediction_to_sheets('qnq', prediction_data)
 
         # Calculate metrics (with a single prediction)
         f1 = 0.0

@@ -6,6 +6,7 @@ from tensorflow.keras.preprocessing import image
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import f1_score, precision_score
+from audio_analyzer.sheets_utils import save_prediction_to_sheets
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -102,6 +103,14 @@ def predict_and_display(img_path, output_box=None):
         # Calculate metrics (with a single prediction)
         f1 = 0.0
         precision = 0.0
+
+        # Save prediction to Google Sheets
+        prediction_data = {
+            'filename': os.path.basename(img_path),
+            'prediction': class_names[predicted_class],
+            'confidence': float(confidence)
+        }
+        save_prediction_to_sheets('bnb', prediction_data)
 
         return predicted_class, confidence, f1, precision
 
