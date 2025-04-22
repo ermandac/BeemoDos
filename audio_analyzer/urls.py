@@ -33,4 +33,10 @@ urlpatterns = [
     
     # Model retraining endpoint
     path('audio_analyzer/retrain-model/', views.retrain_model, name='retrain_model'),
+    
+    # Blynk test endpoint
+    path('test-blynk/', views.test_blynk, name='test_blynk'),
+    
+    # Blynk connection test endpoint
+    path('test-blynk-connection/', views.test_blynk_connection, name='test_blynk_connection'),
 ]

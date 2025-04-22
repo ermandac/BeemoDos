@@ -16,6 +16,7 @@ from scipy.io import wavfile
 import json
 import soundfile as sf
 import re
+import traceback  # Add this import
 
 import tensorflow as tf
 from datetime import datetime
@@ -30,7 +31,7 @@ import TOOTpredictor
 from .discord_utils import send_discord_message
 
 # Import Blynk utilities
-from .blynk_utils import trigger_bee_event
+from .blynk_utils import blynk_connection
 
 logger = logging.getLogger(__name__)
 
@@ -495,29 +496,12 @@ def record_and_generate_spectrograms(request):
         else:
             logger.warning("No spectrograms available for analysis")
 
-        # Trigger Blynk notifications based on analysis results
-        try:
-            blynk_results = trigger_bee_event(
-                bnb_result=analysis_results.get('BNQ', {}).get('label', 'Unknown'),
-                qnq_result=analysis_results.get('QNQ', {}).get('label', 'Unknown'),
-                toot_result=analysis_results.get('TOOT', {}).get('label', 'Unknown'),
-                confidence_levels={
-                    'BNB': analysis_results.get('BNQ', {}).get('confidence', 0.0),
-                    'QNQ': analysis_results.get('QNQ', {}).get('confidence', 0.0),
-                    'TOOT': analysis_results.get('TOOT', {}).get('confidence', 0.0)
-                }
-            )
-            logger.info(f"Blynk notification results: {blynk_results}")
-        except Exception as blynk_error:
-            logger.error(f"Failed to send Blynk notification: {blynk_error}")
-
         # Return successful response
         return JsonResponse({
             'status': 'success',
             'recordings': all_recordings,
             'spectrograms': all_spectrograms,
             'analysis_results': analysis_results,
-            'blynk_notification_status': blynk_results if 'blynk_results' in locals() else None,
             'debug_info': {
                 'existing_sessions': existing_sessions,
                 'current_session': session_timestamp
@@ -631,6 +615,81 @@ def analyze_audio(request):
                     'label': 'Prediction Failed',
                     'error': str(e)
                 }
+
+        # Trigger Blynk event with analysis results
+        try:
+            # Convert analysis results to native types to ensure JSON serializability
+            def convert_numpy_to_native(obj):
+                """
+                Recursively convert numpy types to native Python types
+                """
+                if isinstance(obj, np.float32):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                elif isinstance(obj, dict):
+                    return {k: convert_numpy_to_native(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [convert_numpy_to_native(v) for v in obj]
+                return obj
+
+            safe_analysis_results = convert_numpy_to_native(analysis_results)
+
+            # Predefined action messages matching audio_recorder.js
+            action_messages = {
+                'BNQ': {
+                    'positive': 'Hive Activity Confirmed. Continue regular monitoring.',
+                    'negative': 'No buzzing detected. Inspect the hive for potential issues.'
+                },
+                'QNQ': {
+                    'positive': 'Queen Bee Presence Confirmed. Hive appears stable.',
+                    'negative': 'Queen Bee Might Be Absent. Prepare to introduce a new queen if necessary.'
+                },
+                'TOOT': {
+                    'positive': 'Queen Tooting Detected. Potential queen emergence or competition.',
+                    'negative': 'No queen tooting detected. Continue monitoring.'
+                }
+            }
+
+            # Prepare results for Blynk with predefined messages
+            def get_blynk_result(predictor_key):
+                predictor_result = safe_analysis_results.get(predictor_key, {})
+                confidence = predictor_result.get('confidence', 0)
+                
+                # Determine positive or negative message based on confidence
+                action_type = 'positive' if confidence > 50 else 'negative'
+                
+                # Get the corresponding message from predefined actions
+                return action_messages.get(predictor_key, {}).get(action_type, predictor_result.get('label', 'No Detection'))
+
+            bnb_result = get_blynk_result('BNQ')
+            qnq_result = get_blynk_result('QNQ')
+            toot_result = get_blynk_result('TOOT')
+
+            # Prepare confidence levels
+            confidence_levels = {
+                'bnb': safe_analysis_results.get('BNQ', {}).get('confidence', 0) / 100,
+                'qnq': safe_analysis_results.get('QNQ', {}).get('confidence', 0) / 100,
+                'toot': safe_analysis_results.get('TOOT', {}).get('confidence', 0) / 100
+            }
+
+            # Trigger Blynk event
+            logger.info(f"Attempting to trigger Blynk event with results:")
+            logger.info(f"  BNB Result: {bnb_result}")
+            logger.info(f"  QNQ Result: {qnq_result}")
+            logger.info(f"  TOOT Result: {toot_result}")
+            logger.info(f"  Confidence Levels: {json.dumps(confidence_levels, indent=2)}")
+
+            trigger_blynk_event(
+                bnb_result=bnb_result, 
+                qnq_result=qnq_result, 
+                toot_result=toot_result,
+                spectrogram_path=spectrograms[0] if spectrograms else None,
+                confidence_levels=confidence_levels
+            )
+        except Exception as blynk_error:
+            logger.error(f"Error triggering Blynk event: {blynk_error}")
+            logger.error(traceback.format_exc())
 
         # Send notification to Discord with analysis results
         try:
@@ -780,7 +839,7 @@ def analyze_audio(request):
                 else:
                     logger.warning("No spectrograms available for frequency analysis")
                     message += "Frequency Data: No spectrograms available\n"
-                    message += "Activity Level: Unknown\n"
+                    message += "Activity Level: Unknown\n"       
             except Exception as e:
                 logger.error(f"Error in frequency analysis: {e}")
                 logger.error(traceback.format_exc())
@@ -825,16 +884,54 @@ def analyze_audio(request):
             if spectrograms and len(spectrograms) > 0:
                 spectrogram_path = os.path.join(settings.MEDIA_ROOT, spectrograms[0])
             
+            # Prepare notification messages with detailed insights
+            def generate_notification_message(predictor_key, predictor_result):
+                confidence = predictor_result.get('confidence', 0)
+                label = predictor_result.get('label', 'No Detection')
+                
+                notification_templates = {
+                    'BNQ': {
+                        'positive': f"🐝 Hive Buzz Alert: Active Bee Presence Detected (Confidence: {confidence:.2f}%)\n"
+                                   f"Observation: Significant buzzing indicates healthy hive activity. Continue regular monitoring.",
+                        'negative': f"🐝 Hive Status: Low Bee Activity (Confidence: {confidence:.2f}%)\n"
+                                    f"Recommendation: Inspect the hive for potential issues or reduced bee population."
+                    },
+                    'QNQ': {
+                        'positive': f"👑 Queen Bee Confirmation: Presence Detected (Confidence: {confidence:.2f}%)\n"
+                                    f"Status: Queen bee is present, suggesting a stable and potentially productive hive.",
+                        'negative': f"👑 Queen Bee Alert: Potential Absence (Confidence: {confidence:.2f}%)\n"
+                                    f"Caution: Consider preparing to introduce a new queen to maintain hive health."
+                    },
+                    'TOOT': {
+                        'positive': f"🔊 Queen Tooting Detected (Confidence: {confidence:.2f}%)\n"
+                                    f"Insight: Potential queen emergence or competitive behavior observed. Monitor closely.",
+                        'negative': f"🔊 Queen Communication: No Tooting Detected (Confidence: {confidence:.2f}%)\n"
+                                    f"Current Status: No significant queen communication signals at this time."
+                    }
+                }
+                
+                action_type = 'positive' if confidence > 50 else 'negative'
+                return notification_templates.get(predictor_key, {}).get(action_type, f"Detection for {predictor_key}: {label}")
+
+            # Generate detailed notification messages
+            notification_messages = {
+                predictor_key: generate_notification_message(predictor_key, safe_analysis_results.get(predictor_key, {}))
+                for predictor_key in ['BNQ', 'QNQ', 'TOOT']
+            }
+
+            # Combine all notification messages
+            full_notification_message = "\n\n".join(notification_messages.values())
+
             # Send the message to Discord
-            discord_result = send_discord_message(message, spectrogram_path)
+            discord_result = send_discord_message(full_notification_message, spectrogram_path)
+            
             if discord_result:
                 logger.info("Successfully sent analysis results to Discord")
             else:
-                logger.error("Failed to send analysis results to Discord")
-                logger.error(f"Discord message: {message}")
-                logger.error(f"Spectrogram path: {spectrogram_path}")
+                logger.warning("Failed to send message to Discord")
         except Exception as discord_error:
             logger.error(f"Error sending Discord notification: {discord_error}")
+            logger.error(traceback.format_exc())
             # Continue processing even if Discord notification fails
 
         # Prepare final response with additional metadata
@@ -1027,3 +1124,180 @@ def test_discord(request):
     except Exception as e:
         logger.error(f"Error in test_discord: {e}")
         return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+@csrf_exempt
+def test_blynk(request):
+    """
+    Test Blynk connection and functionality
+    """
+    try:
+        # Send a test notification
+        notification_result = blynk_connection.trigger_notification(
+            "Blynk Test", 
+            "test_event", 
+            "Blynk connection test from BeemoDos"
+        )
+        
+        # Send data to a virtual pin
+        pin_result = blynk_connection.send_string_to_blynk(1, "Blynk test data")
+        
+        return JsonResponse({
+            'status': 'success', 
+            'message': 'Blynk connection test completed',
+            'notification_sent': notification_result,
+            'pin_data_sent': pin_result,
+            'connection_status': blynk_connection.is_connected
+        })
+    except Exception as e:
+        logger.error(f"Blynk connection test failed: {e}")
+        return JsonResponse({
+            'status': 'error', 
+            'message': f'Blynk connection test failed: {str(e)}',
+            'connection_status': blynk_connection.is_connected
+        }, status=500)
+
+@csrf_exempt
+def test_blynk_connection(request):
+    """
+    Test Blynk connection and virtual pin 3 functionality
+    
+    Returns a JSON response indicating the connection status
+    """
+    try:
+        # Test V3 connection
+        connection_result = blynk_connection.test_v3_connection()
+        
+        return JsonResponse({
+            'status': 'success',
+            'connection_test': connection_result,
+            'message': 'Blynk V3 connection test completed' if connection_result else 'Blynk V3 connection test failed'
+        })
+    
+    except Exception as e:
+        logger.error(f"Blynk connection test error: {e}")
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
+import json
+import logging
+from datetime import datetime
+from .blynk_utils import blynk_connection  # Import the global Blynk connection
+
+logger = logging.getLogger(__name__)
+
+def trigger_blynk_event(bnb_result, qnq_result, toot_result=None, 
+                         spectrogram_path=None, 
+                         confidence_levels=None, 
+                         frequency_data=None):
+    """
+    Trigger Blynk notifications based on bee behavior detection results.
+    
+    Args:
+        bnb_result (str): Bee presence detection result
+        qnq_result (str): Queen bee detection result
+        toot_result (str, optional): Tooting detection result
+        spectrogram_path (str, optional): Path to the generated spectrogram
+        confidence_levels (dict, optional): Confidence levels for predictions
+        frequency_data (dict, optional): Frequency analysis data
+    """
+    # Log input parameters for debugging
+    logger.debug(f"Trigger Blynk Event - Input Parameters:")
+    logger.debug(f"BNB Result: {bnb_result}")
+    logger.debug(f"QNQ Result: {qnq_result}")
+    logger.debug(f"TOOT Result: {toot_result}")
+    logger.debug(f"Spectrogram Path: {spectrogram_path}")
+    logger.debug(f"Confidence Levels: {confidence_levels}")
+    logger.debug(f"Frequency Data: {frequency_data}")
+
+    try:
+        # Ensure Blynk connection is established
+        if not blynk_connection:
+            logger.error("Blynk connection object is None")
+            return False
+        
+        if not hasattr(blynk_connection, 'blynk'):
+            logger.error("Blynk connection does not have 'blynk' attribute")
+            return False
+
+        # Detailed connection status logging
+        logger.debug(f"Blynk Connection Object: {blynk_connection}")
+        logger.debug(f"Blynk Attribute: {getattr(blynk_connection, 'blynk', 'Not Found')}")
+
+        # Prepare notification payload
+        notification_payload = {
+            "timestamp": datetime.now().isoformat(),
+            "predictions": {
+                "BNB": {
+                    "result": bnb_result,
+                    "confidence": confidence_levels.get('bnb', 0) if confidence_levels else 0,
+                    "file": spectrogram_path
+                },
+                "QNQ": {
+                    "result": qnq_result,
+                    "confidence": confidence_levels.get('qnq', 0) if confidence_levels else 0,
+                    "file": spectrogram_path
+                },
+                "TOOT": {
+                    "result": toot_result,
+                    "confidence": confidence_levels.get('toot', 0) if confidence_levels else 0,
+                    "file": spectrogram_path
+                }
+            },
+            "frequency_data": frequency_data or {}
+        }
+
+        # Convert payload to JSON string
+        payload_json = json.dumps(notification_payload)
+        logger.info(f"Blynk Payload: {payload_json}")
+
+        # BNB Notifications on V3
+        try:
+            logger.info(f"Attempting to write BNB result '{bnb_result}' to V3")
+            # Explicitly check if blynk is available before writing
+            if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
+                blynk_connection.blynk.virtual_write(3, bnb_result)
+                logger.info(f"Successfully wrote BNB result '{bnb_result}' to V3")
+            else:
+                logger.error("Blynk connection not available for BNB notification")
+        except Exception as bnb_error:
+            logger.error(f"Error sending BNB prediction to Blynk: {bnb_error}")
+            logger.error(traceback.format_exc())
+
+        # QNQ Notifications on V4
+        try:
+            logger.info(f"Attempting to write QNQ result '{qnq_result}' to V4")
+            # Explicitly check if blynk is available before writing
+            if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
+                blynk_connection.blynk.virtual_write(4, qnq_result)
+                logger.info(f"Successfully wrote QNQ result '{qnq_result}' to V4")
+            else:
+                logger.error("Blynk connection not available for QNQ notification")
+        except Exception as qnq_error:
+            logger.error(f"Error sending QNQ prediction to Blynk: {qnq_error}")
+            logger.error(traceback.format_exc())
+
+        # TOOT Notifications on V5
+        try:
+            if toot_result:
+                logger.info(f"Attempting to write TOOT result '{toot_result}' to V5")
+                # Explicitly check if blynk is available before writing
+                if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
+                    blynk_connection.blynk.virtual_write(5, toot_result)
+                    logger.info(f"Successfully wrote TOOT result '{toot_result}' to V5")
+                else:
+                    logger.error("Blynk connection not available for TOOT notification")
+        except Exception as toot_error:
+            logger.error(f"Error sending TOOT prediction to Blynk: {toot_error}")
+            logger.error(traceback.format_exc())
+
+        # Log the full payload for debugging and record-keeping
+        logger.debug(f"Blynk Notification Payload: {payload_json}")
+        
+        return True
+
+    except Exception as e:
+        logger.error(f"Comprehensive error in trigger_blynk_event: {e}")
+        logger.error(traceback.format_exc())
+        return False

@@ -9,17 +9,18 @@ class AudioAnalyzerConfig(AppConfig):
     name = 'audio_analyzer'
     verbose_name = 'Bee Audio Analyzer'
 
-    def ready(self):
-        """
-        Initialize Blynk service when the app is ready
-        This ensures Blynk is initialized only once during app startup
-        """
-        if settings.BLYNK_ENABLED:
-            try:
-                from .blynk_utils import safe_initialize_blynk
-                safe_initialize_blynk()
-                logger.info("Blynk initialized successfully during app startup")
-            except Exception as e:
-                logger.error(f"Failed to initialize Blynk during app startup: {e}")
-        else:
-            logger.info("Blynk is disabled in settings")
+    # def ready(self):
+    #     """
+    #     Initialize Blynk service when the app is ready
+    #     This ensures Blynk is initialized only once during app startup
+    #     """
+    #     if settings.BLYNK_ENABLED:
+    #         try:
+    #             # Import Blynk initialization function
+    #             from .blynk_utils import initialize_blynk
+    #             initialize_blynk()
+    #             logger.info("Blynk initialized successfully during app startup")
+    #         except Exception as e:
+    #             logger.error(f"Failed to initialize Blynk during app startup: {e}")
+    #     else:
+    #         logger.info("Blynk is disabled in settings")
