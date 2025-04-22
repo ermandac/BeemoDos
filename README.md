@@ -7,6 +7,7 @@ BeemoDos is a Django-based web application designed to analyze bee audio recordi
 - Audio recording functionality
 - Spectrogram generation
 - Machine learning model inference for bee behavior detection
+- Automated hourly audio analysis
 
 ## Prerequisites
 - Python 3.9+
@@ -87,6 +88,51 @@ python manage.py createsuperuser
 ```bash
 python manage.py runserver
 ```
+
+## Hourly Audio Analysis
+
+### Overview
+BeemoDos supports automated hourly audio recording and analysis through a custom Django management command.
+
+### Configuration Options
+```bash
+# Basic hourly analysis (10-second recording)
+python manage.py run_hourly_analysis
+
+# Customize recording duration
+python manage.py run_hourly_analysis --duration 15
+
+# Specify audio input device
+python manage.py run_hourly_analysis --device 2
+
+# Custom sample rate and channels
+python manage.py run_hourly_analysis --sample-rate 48000 --channels 2
+```
+
+### Scheduling Methods
+#### Systemd Timer (Recommended)
+1. Create service file at `/etc/systemd/system/beemodos-hourly-analysis.service`
+2. Create timer file at `/etc/systemd/system/beemodos-hourly-analysis.timer`
+3. Enable and start the timer
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable beemodos-hourly-analysis.timer
+sudo systemctl start beemodos-hourly-analysis.timer
+```
+
+#### Crontab Alternative
+```bash
+# Open crontab
+crontab -e
+
+# Add hourly job
+0 * * * * /path/to/python /path/to/manage.py run_hourly_analysis
+```
+
+### Logging
+- Logs are managed by Django's logging system
+- Check Django log files for detailed analysis results
+- Logs include recording configuration, device info, and analysis outcomes
 
 ## Machine Learning Models
 - Pre-trained models are excluded from the repository

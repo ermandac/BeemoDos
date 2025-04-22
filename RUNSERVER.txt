@@ -1,0 +1,106 @@
+# BeemoDos Django Server Deployment Guide
+
+## Systemd Service Configuration
+
+### 1. Create Systemd Service File
+Create a file at `/etc/systemd/system/beemodos.service`:
+
+```
+[Unit]
+Description=BeemoDos Django Web Application
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=kryogenic
+Group=kryogenic
+WorkingDirectory=/home/kryogenic/Desktop/Development-Projects/BeemoDos
+Environment="PATH=/home/kryogenic/Desktop/Development-Projects/BeemoDos/venv/bin"
+Environment="DJANGO_SETTINGS_MODULE=beemodos.settings"
+
+# Activate virtual environment and run Gunicorn
+ExecStart=/home/kryogenic/Desktop/Development-Projects/BeemoDos/venv/bin/gunicorn \
+    --workers 3 \
+    --bind 0.0.0.0:8000 \
+    --log-level=info \
+    --log-file=/var/log/beemodos/gunicorn.log \
+    beemodos.wsgi:application
+
+# Restart service if it fails
+Restart=on-failure
+RestartSec=10
+
+# Security Hardening
+PrivateTmp=true
+ProtectSystem=full
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 2. Create Log Directory
+```bash
+sudo mkdir -p /var/log/beemodos
+sudo chown kryogenic:kryogenic /var/log/beemodos
+```
+
+### 3. Enable and Start Service
+```bash
+# Reload systemd to recognize new service
+sudo systemctl daemon-reload
+
+# Enable service to start on boot
+sudo systemctl enable beemodos.service
+
+# Start the service
+sudo systemctl start beemodos.service
+
+# Check service status
+sudo systemctl status beemodos.service
+```
+
+## Manual Server Startup (Alternative)
+
+### Activate Virtual Environment
+```bash
+cd /home/kryogenic/Desktop/Development-Projects/BeemoDos
+source venv/bin/activate
+```
+
+### Run Development Server
+```bash
+# Standard Django development server
+python manage.py runserver 0.0.0.0:8000
+
+# Or with Gunicorn for production
+gunicorn --workers 3 --bind 0.0.0.0:8000 beemodos.wsgi:application
+```
+
+## Firewall Configuration (Optional)
+```bash
+# Allow incoming traffic on port 8000
+sudo ufw allow 8000/tcp
+```
+
+## Troubleshooting
+- Verify virtual environment activation
+- Check Django settings (settings.py)
+- Review gunicorn and Django logs
+- Ensure all dependencies are installed
+- Check system permissions
+
+## Logging Locations
+- Gunicorn Logs: `/var/log/beemodos/gunicorn.log`
+- Django Logs: Check your Django logging configuration
+
+## Performance Tuning
+- Adjust worker count based on CPU cores
+- Use Nginx as a reverse proxy for better performance
+- Consider using Redis for caching
+
+## Security Notes
+- Use HTTPS in production
+- Keep all dependencies updated
+- Regularly rotate logs
+- Use environment variables for sensitive information

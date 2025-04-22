@@ -1,0 +1,91 @@
+# BeemoDos Hourly Audio Analysis Scheduling Guide
+
+## Systemd Timer Method (Recommended)
+
+### 1. Create Service File
+Location: /etc/systemd/system/beemodos-hourly-analysis.service
+```
+[Unit]
+Description=BeemoDos Hourly Audio Analysis
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/kryogenic/Desktop/Development-Projects/BeemoDos
+ExecStart=/path/to/python /path/to/manage.py run_hourly_analysis
+User=kryogenic
+Group=kryogenic
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### 2. Create Timer File
+Location: /etc/systemd/system/beemodos-hourly-analysis.timer
+```
+[Unit]
+Description=Run BeemoDos Hourly Audio Analysis
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+### 3. Enable and Start Timer
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable beemodos-hourly-analysis.timer
+sudo systemctl start beemodos-hourly-analysis.timer
+```
+
+## Crontab Alternative Method
+
+### 1. Open Crontab
+```bash
+crontab -e
+```
+
+### 2. Add Hourly Job
+```
+0 * * * * /path/to/python /path/to/manage.py run_hourly_analysis
+```
+
+## Management Command Options
+
+### Basic Usage
+```bash
+# Default recording (10 seconds, default device)
+python manage.py run_hourly_analysis
+
+# Customize recording duration
+python manage.py run_hourly_analysis --duration 15
+
+# Specify audio device
+python manage.py run_hourly_analysis --device 2
+
+# Custom sample rate and channels
+python manage.py run_hourly_analysis --sample-rate 48000 --channels 2
+```
+
+## Logging
+- Logs are managed by Django's logging system
+- Check Django log files for detailed analysis results
+- Logs include:
+  - Recording configuration
+  - Available audio devices
+  - Analysis results
+  - Blynk and Discord notification status
+
+## Troubleshooting
+- Ensure Python virtual environment is activated
+- Verify audio device availability
+- Check system permissions
+- Review Django and system logs for any errors
+
+## Performance Considerations
+- Adjust recording duration based on system resources
+- Monitor disk space for audio recordings
+- Consider log rotation for long-term storage
