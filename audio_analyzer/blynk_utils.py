@@ -4,10 +4,14 @@ import logging
 import os
 import threading
 import time
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 class BlynkConnection:
+    # Define VIRTUAL_PINS as a class attribute
+    VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
+
     def __init__(self, 
                  auth_token='G_3XV39JoVt7eCZnkqwdKP0dlvflgKHG', 
                  server='sgp1.blynk.cloud', 
@@ -79,82 +83,82 @@ class BlynkConnection:
                 logger.debug(f"Blynk initialized with token {self.auth_token[:5]}... on {self.server}:{self.port}")
                 
                 # Setup virtual pin handlers
-                @self.blynk.VIRTUAL_WRITE(0)
+                # Debug logging for virtual pin configuration
+                logger.debug(f"Loaded Blynk Virtual Pins Configuration: {self.VIRTUAL_PINS}")
+                
+                @self.blynk.VIRTUAL_WRITE(self.VIRTUAL_PINS['STATUS'])
                 def on_v0_write(value):
                     """
-                    Handler for virtual pin V0 write events
+                    Handler for status virtual pin write events
                     """
-                    logger.info(f"V0 write event received: {value}")
-                    # Additional diagnostic logging
+                    logger.info(f"Status pin write event received: {value}")
                     logger.info(f"Current connection status: {self.is_connected}")
 
-                @self.blynk.VIRTUAL_READ(0)
+                @self.blynk.VIRTUAL_READ(self.VIRTUAL_PINS['STATUS'])
                 def on_v0_read():
                     """
-                    Handler for virtual pin V0 read events
+                    Handler for status virtual pin read events
                     """
-                    logger.info("V0 read event triggered")
-                    # Send a diagnostic value back to the pin
+                    logger.info("Status pin read event triggered")
                     try:
-                        self.blynk.virtual_write(0, f"Diagnostic read at {time.time()}")
+                        self.blynk.virtual_write(
+                            self.VIRTUAL_PINS['STATUS'], 
+                            f"Diagnostic read at {time.time()}"
+                        )
                     except Exception as e:
-                        logger.error(f"Failed to write to V0: {e}")
+                        logger.error(f"Failed to write to status pin: {e}")
 
-                # Setup virtual pin handlers for V3, V4, V5
-                @self.blynk.VIRTUAL_WRITE(3)
-                def on_v3_write(value):
+                @self.blynk.VIRTUAL_WRITE(self.VIRTUAL_PINS['BEE_PREDICTION'])
+                def on_bee_prediction_write(value):
                     """
-                    Handler for Bee Prediction (V3) write events
+                    Handler for Bee Prediction write events
                     """
-                    logger.info(f"V3 (Bee Prediction) write event received: {value}")
+                    logger.info(f"Bee Prediction pin write event received: {value}")
                     logger.info(f"Type of value: {type(value)}")
                     logger.info(f"Full event details: {locals()}")
 
-                @self.blynk.VIRTUAL_READ(3)
-                def on_v3_read():
+                @self.blynk.VIRTUAL_READ(self.VIRTUAL_PINS['BEE_PREDICTION'])
+                def on_bee_prediction_read():
                     """
-                    Handler for Bee Prediction (V3) read events
+                    Handler for Bee Prediction read events
                     """
-                    logger.info("V3 (Bee Prediction) read event triggered")
-                    # Optionally, return a default or last known value
+                    logger.info("Bee Prediction pin read event triggered")
                     return "Last known bee prediction"
 
-                @self.blynk.VIRTUAL_WRITE(4)
-                def on_v4_write(value):
+                @self.blynk.VIRTUAL_WRITE(self.VIRTUAL_PINS['QUEEN_BEE_PREDICTION'])
+                def on_queen_bee_prediction_write(value):
                     """
-                    Handler for Queen Bee Prediction (V4) write events
+                    Handler for Queen Bee Prediction write events
                     """
-                    logger.info(f"V4 (Queen Bee Prediction) write event received: {value}")
+                    logger.info(f"Queen Bee Prediction pin write event received: {value}")
                     logger.info(f"Type of value: {type(value)}")
                     logger.info(f"Full event details: {locals()}")
 
-                @self.blynk.VIRTUAL_READ(4)
-                def on_v4_read():
+                @self.blynk.VIRTUAL_READ(self.VIRTUAL_PINS['QUEEN_BEE_PREDICTION'])
+                def on_queen_bee_prediction_read():
                     """
-                    Handler for Queen Bee Prediction (V4) read events
+                    Handler for Queen Bee Prediction read events
                     """
-                    logger.info("V4 (Queen Bee Prediction) read event triggered")
-                    # Optionally, return a default or last known value
+                    logger.info("Queen Bee Prediction pin read event triggered")
                     return "Last known queen bee prediction"
 
-                @self.blynk.VIRTUAL_WRITE(5)
-                def on_v5_write(value):
+                @self.blynk.VIRTUAL_WRITE(self.VIRTUAL_PINS['TOOTING_PREDICTION'])
+                def on_tooting_prediction_write(value):
                     """
-                    Handler for Tooting Prediction (V5) write events
+                    Handler for Tooting Prediction write events
                     """
-                    logger.info(f"V5 (Tooting Prediction) write event received: {value}")
+                    logger.info(f"Tooting Prediction pin write event received: {value}")
                     logger.info(f"Type of value: {type(value)}")
                     logger.info(f"Full event details: {locals()}")
 
-                @self.blynk.VIRTUAL_READ(5)
-                def on_v5_read():
+                @self.blynk.VIRTUAL_READ(self.VIRTUAL_PINS['TOOTING_PREDICTION'])
+                def on_tooting_prediction_read():
                     """
-                    Handler for Tooting Prediction (V5) read events
+                    Handler for Tooting Prediction read events
                     """
-                    logger.info("V5 (Tooting Prediction) read event triggered")
-                    # Optionally, return a default or last known value
+                    logger.info("Tooting Prediction pin read event triggered")
                     return "Last known tooting prediction"
-
+                
                 # Start Blynk event loop in a separate thread
                 self.connection_thread = threading.Thread(target=self._run_blynk, daemon=True)
                 self.connection_thread.start()
@@ -280,7 +284,7 @@ class BlynkConnection:
         try:
             # Send a test value to V3
             logger.info("Sending test signal to V3")
-            self.blynk.virtual_write(3, "Test V3")
+            self.blynk.virtual_write(self.VIRTUAL_PINS['BEE_PREDICTION'], "Test V3")
             
             # Optional: Add a small delay to allow processing
             time.sleep(1)

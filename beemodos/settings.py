@@ -139,3 +139,11 @@ LOGGING = {
 # Discord Integration
 DISCORD_BOT_TOKEN = os.environ.get('DISCORD_BOT_TOKEN', 'MTMxMzM0ODk1NzkwODM3MzUxNA.GNgp-A.uQrvCg9yMBvq8zG3oHhKEPqhPJvv3J7Ja0OPPs')
 DISCORD_CHANNEL_ID = int(os.environ.get('DISCORD_CHANNEL_ID', '1311152755276124181'))
+
+# Blynk Virtual Pin Configurations
+BLYNK_VIRTUAL_PINS = {
+    'STATUS': 0,
+    'BEE_PREDICTION': 6,
+    'QUEEN_BEE_PREDICTION': 7,
+    'TOOTING_PREDICTION': 8
+}

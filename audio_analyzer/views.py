@@ -683,6 +683,8 @@ def analyze_audio(request):
             logger.info(f"  TOOT Result: {toot_result}")
             logger.info(f"  Confidence Levels: {json.dumps(confidence_levels, indent=2)}")
 
+            from django.conf import settings
+            VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
             trigger_blynk_event(
                 bnb_result=bnb_result, 
                 qnq_result=qnq_result, 
@@ -779,8 +781,8 @@ def analyze_audio(request):
                                     samples = np.mean(samples, axis=1)
                                 
                                 # Perform FFT
-                                fft_data = np.fft.rfft(samples)
-                                freqs = np.fft.rfftfreq(len(samples), 1/sample_rate)
+                                fft_data = np.fft.fft(samples)
+                                freqs = np.fft.fftfreq(len(samples), 1/sample_rate)
                                 
                                 # Filter out low-frequency noise (below 20 Hz)
                                 MIN_FREQUENCY = 20
@@ -1255,40 +1257,43 @@ def trigger_blynk_event(bnb_result, qnq_result, toot_result=None,
         payload_json = json.dumps(notification_payload)
         logger.info(f"Blynk Payload: {payload_json}")
 
-        # BNB Notifications on V3
+        from django.conf import settings
+        VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
+
+        # BNB Notifications on configurable pin
         try:
-            logger.info(f"Attempting to write BNB result '{bnb_result}' to V3")
+            logger.info(f"Attempting to write BNB result '{bnb_result}' to V{VIRTUAL_PINS['BEE_PREDICTION']}")
             # Explicitly check if blynk is available before writing
             if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                blynk_connection.blynk.virtual_write(3, bnb_result)
-                logger.info(f"Successfully wrote BNB result '{bnb_result}' to V3")
+                blynk_connection.blynk.virtual_write(VIRTUAL_PINS['BEE_PREDICTION'], bnb_result)
+                logger.info(f"Successfully wrote BNB result '{bnb_result}' to V{VIRTUAL_PINS['BEE_PREDICTION']}")
             else:
                 logger.error("Blynk connection not available for BNB notification")
         except Exception as bnb_error:
             logger.error(f"Error sending BNB prediction to Blynk: {bnb_error}")
             logger.error(traceback.format_exc())
 
-        # QNQ Notifications on V4
+        # QNQ Notifications on configurable pin
         try:
-            logger.info(f"Attempting to write QNQ result '{qnq_result}' to V4")
+            logger.info(f"Attempting to write QNQ result '{qnq_result}' to V{VIRTUAL_PINS['QUEEN_BEE_PREDICTION']}")
             # Explicitly check if blynk is available before writing
             if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                blynk_connection.blynk.virtual_write(4, qnq_result)
-                logger.info(f"Successfully wrote QNQ result '{qnq_result}' to V4")
+                blynk_connection.blynk.virtual_write(VIRTUAL_PINS['QUEEN_BEE_PREDICTION'], qnq_result)
+                logger.info(f"Successfully wrote QNQ result '{qnq_result}' to V{VIRTUAL_PINS['QUEEN_BEE_PREDICTION']}")
             else:
                 logger.error("Blynk connection not available for QNQ notification")
         except Exception as qnq_error:
             logger.error(f"Error sending QNQ prediction to Blynk: {qnq_error}")
             logger.error(traceback.format_exc())
 
-        # TOOT Notifications on V5
+        # TOOT Notifications on configurable pin
         try:
             if toot_result:
-                logger.info(f"Attempting to write TOOT result '{toot_result}' to V5")
+                logger.info(f"Attempting to write TOOT result '{toot_result}' to V{VIRTUAL_PINS['TOOTING_PREDICTION']}")
                 # Explicitly check if blynk is available before writing
                 if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                    blynk_connection.blynk.virtual_write(5, toot_result)
-                    logger.info(f"Successfully wrote TOOT result '{toot_result}' to V5")
+                    blynk_connection.blynk.virtual_write(VIRTUAL_PINS['TOOTING_PREDICTION'], toot_result)
+                    logger.info(f"Successfully wrote TOOT result '{toot_result}' to V{VIRTUAL_PINS['TOOTING_PREDICTION']}")
                 else:
                     logger.error("Blynk connection not available for TOOT notification")
         except Exception as toot_error:
