@@ -530,13 +530,13 @@ def predictors_view(request):
 
 @csrf_exempt
 def analyze_audio(request):
-    """
-    Analyze multiple spectrograms using pre-trained machine learning models
-    """
-    if request.method != 'POST':
-        return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
-
     try:
+        # Ensure Django settings are imported at the top of the function
+        from django.conf import settings
+
+        if request.method != 'POST':
+            return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
+
         # Parse request data
         data = json.loads(request.body)
         spectrograms = data.get('spectrograms', [])
@@ -685,13 +685,24 @@ def analyze_audio(request):
 
             from django.conf import settings
             VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
-            trigger_blynk_event(
-                bnb_result=bnb_result, 
-                qnq_result=qnq_result, 
-                toot_result=toot_result,
-                spectrogram_path=spectrograms[0] if spectrograms else None,
-                confidence_levels=confidence_levels
-            )
+            # Import Blynk connection if not already passed
+            from .blynk_utils import blynk_connection as default_blynk_connection
+
+            # Use passed connection or default connection
+            active_blynk_connection = blynk_connection or default_blynk_connection
+
+            # Check if a valid Blynk connection exists
+            if active_blynk_connection and hasattr(active_blynk_connection, 'trigger_notification'):
+                trigger_blynk_event(
+                    bnb_result=bnb_result, 
+                    qnq_result=qnq_result, 
+                    toot_result=toot_result,
+                    spectrogram_path=spectrograms[0] if spectrograms else None,
+                    confidence_levels=confidence_levels,
+                    blynk_connection=active_blynk_connection
+                )
+            else:
+                logger.warning("No valid Blynk connection available for notifications")
         except Exception as blynk_error:
             logger.error(f"Error triggering Blynk event: {blynk_error}")
             logger.error(traceback.format_exc())
@@ -710,7 +721,7 @@ def analyze_audio(request):
                 message += '\n    "Predicted": "' + analysis_results["BNQ"]["label"] + '",'  
                 message += '\n    "Confidence": ' + str(analysis_results["BNQ"]["confidence"]) + ','  
                 message += '\n    "Predicted Class": ' + str(analysis_results["BNQ"]["predicted_class"]) + ','  
-                message += '\n    "F1 Score": ' + str(analysis_results["BNQ"]["f1_score"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results.get("BNQ", {}).get('f1_score', 'N/A')) + ','  
                 message += '\n    "Precision": ' + str(analysis_results["BNQ"]["precision"]) + ''  
                 message += '\n  }'
             
@@ -723,7 +734,7 @@ def analyze_audio(request):
                 message += '\n    "Predicted": "' + analysis_results["QNQ"]["label"] + '",'  
                 message += '\n    "Confidence": ' + str(analysis_results["QNQ"]["confidence"]) + ','  
                 message += '\n    "Predicted Class": ' + str(analysis_results["QNQ"]["predicted_class"]) + ','  
-                message += '\n    "F1 Score": ' + str(analysis_results["QNQ"]["f1_score"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results.get("QNQ", {}).get('f1_score', 'N/A')) + ','  
                 message += '\n    "Precision": ' + str(analysis_results["QNQ"]["precision"]) + ''  
                 message += '\n  }'
             
@@ -736,7 +747,7 @@ def analyze_audio(request):
                 message += '\n    "Predicted": "' + analysis_results["TOOT"]["label"] + '",'  
                 message += '\n    "Confidence": ' + str(analysis_results["TOOT"]["confidence"]) + ','  
                 message += '\n    "Predicted Class": ' + str(analysis_results["TOOT"]["predicted_class"]) + ','  
-                message += '\n    "F1 Score": ' + str(analysis_results["TOOT"]["f1_score"]) + ','  
+                message += '\n    "F1 Score": ' + str(analysis_results.get("TOOT", {}).get('f1_score', 'N/A')) + ','  
                 message += '\n    "Precision": ' + str(analysis_results["TOOT"]["precision"]) + ''  
                 message += '\n  }'
             
@@ -782,12 +793,12 @@ def analyze_audio(request):
                                 
                                 # Perform FFT
                                 fft_data = np.fft.fft(samples)
-                                freqs = np.fft.fftfreq(len(samples), 1/sample_rate)
+                                frequencies = np.fft.fftfreq(len(samples), 1/sample_rate)
                                 
                                 # Filter out low-frequency noise (below 20 Hz)
                                 MIN_FREQUENCY = 20
-                                mask = np.abs(freqs) >= MIN_FREQUENCY
-                                filtered_freqs = freqs[mask]
+                                mask = np.abs(frequencies) >= MIN_FREQUENCY
+                                filtered_freqs = frequencies[mask]
                                 filtered_fft = np.abs(fft_data[mask])
                                 
                                 # Compute frequency statistics
@@ -1192,123 +1203,66 @@ from .blynk_utils import blynk_connection  # Import the global Blynk connection
 
 logger = logging.getLogger(__name__)
 
-def trigger_blynk_event(bnb_result, qnq_result, toot_result=None, 
-                         spectrogram_path=None, 
-                         confidence_levels=None, 
-                         frequency_data=None):
-    """
-    Trigger Blynk notifications based on bee behavior detection results.
+from django.conf import settings
+
+def trigger_blynk_event(
+    bnb_result=None, 
+    qnq_result=None, 
+    toot_result=None, 
+    spectrogram_path=None,
+    confidence_levels=None, 
+    frequency_data=None,
+    blynk_connection=None,
+    **kwargs
+):
+    # Ensure settings are imported
+    from django.conf import settings
     
-    Args:
-        bnb_result (str): Bee presence detection result
-        qnq_result (str): Queen bee detection result
-        toot_result (str, optional): Tooting detection result
-        spectrogram_path (str, optional): Path to the generated spectrogram
-        confidence_levels (dict, optional): Confidence levels for predictions
-        frequency_data (dict, optional): Frequency analysis data
-    """
-    # Log input parameters for debugging
-    logger.debug(f"Trigger Blynk Event - Input Parameters:")
-    logger.debug(f"BNB Result: {bnb_result}")
-    logger.debug(f"QNQ Result: {qnq_result}")
-    logger.debug(f"TOOT Result: {toot_result}")
-    logger.debug(f"Spectrogram Path: {spectrogram_path}")
-    logger.debug(f"Confidence Levels: {confidence_levels}")
-    logger.debug(f"Frequency Data: {frequency_data}")
+    if not hasattr(settings, 'BLYNK_VIRTUAL_PINS'):
+        logger.error("Blynk virtual pins not configured in settings")
+        return False
+
+    VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
 
     try:
-        # Ensure Blynk connection is established
-        if not blynk_connection:
-            logger.error("Blynk connection object is None")
-            return False
-        
-        if not hasattr(blynk_connection, 'blynk'):
-            logger.error("Blynk connection does not have 'blynk' attribute")
-            return False
+        # Trigger Blynk event based on prediction
+        if bnb_result and bnb_result.lower().startswith('Hive Activity Confirmed. Continue regular monitoring.'):
+            blynk_connection.trigger_notification(
+                event_name="[Hive 1] Bees are Present Inside your Hive",
+                event_code="bees_detected",
+                description="Bee activity detected in Hive 1."
+            )
+        elif bnb_result:
+            blynk_connection.trigger_notification(
+                event_name="[Hive 1] There are No Bees Inside your Hive!",
+                event_code="no_bees",
+                description="No bees detected in Hive 1."
+            )
 
-        # Detailed connection status logging
-        logger.debug(f"Blynk Connection Object: {blynk_connection}")
-        logger.debug(f"Blynk Attribute: {getattr(blynk_connection, 'blynk', 'Not Found')}")
+        if qnq_result and qnq_result.lower().startswith('queen bee presence confirmed'):
+            blynk_connection.trigger_notification(
+                event_name="[Hive 1] Queen Bee Presence Confirmed",
+                event_code="queen_present",
+                description="Queen bee present in Hive 1."
+            )
+        elif qnq_result:
+            blynk_connection.trigger_notification(
+                event_name="[Hive 1] Queen Bee Absence Alert",
+                event_code="queen_absent",
+                description="Queen bee absent in Hive 1."
+            )
 
-        # Prepare notification payload
-        notification_payload = {
-            "timestamp": datetime.now().isoformat(),
-            "predictions": {
-                "BNB": {
-                    "result": bnb_result,
-                    "confidence": confidence_levels.get('bnb', 0) if confidence_levels else 0,
-                    "file": spectrogram_path
-                },
-                "QNQ": {
-                    "result": qnq_result,
-                    "confidence": confidence_levels.get('qnq', 0) if confidence_levels else 0,
-                    "file": spectrogram_path
-                },
-                "TOOT": {
-                    "result": toot_result,
-                    "confidence": confidence_levels.get('toot', 0) if confidence_levels else 0,
-                    "file": spectrogram_path
-                }
-            },
-            "frequency_data": frequency_data or {}
-        }
+        if toot_result and toot_result.lower().startswith('queen tooting detected'):
+            blynk_connection.trigger_notification(
+                event_name="[Hive 1] Queen Bee Tooting Detected",
+                event_code="queen_toot_detected",
+                description="Queen bee tooting detected in Hive 1."
+            )
 
-        # Convert payload to JSON string
-        payload_json = json.dumps(notification_payload)
-        logger.info(f"Blynk Payload: {payload_json}")
+    except Exception as blynk_event_error:
+        logger.error(f"Error triggering Blynk event notifications: {blynk_event_error}")
 
-        from django.conf import settings
-        VIRTUAL_PINS = settings.BLYNK_VIRTUAL_PINS
-
-        # BNB Notifications on configurable pin
-        try:
-            logger.info(f"Attempting to write BNB result '{bnb_result}' to V{VIRTUAL_PINS['BEE_PREDICTION']}")
-            # Explicitly check if blynk is available before writing
-            if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                blynk_connection.blynk.virtual_write(VIRTUAL_PINS['BEE_PREDICTION'], bnb_result)
-                logger.info(f"Successfully wrote BNB result '{bnb_result}' to V{VIRTUAL_PINS['BEE_PREDICTION']}")
-            else:
-                logger.error("Blynk connection not available for BNB notification")
-        except Exception as bnb_error:
-            logger.error(f"Error sending BNB prediction to Blynk: {bnb_error}")
-            logger.error(traceback.format_exc())
-
-        # QNQ Notifications on configurable pin
-        try:
-            logger.info(f"Attempting to write QNQ result '{qnq_result}' to V{VIRTUAL_PINS['QUEEN_BEE_PREDICTION']}")
-            # Explicitly check if blynk is available before writing
-            if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                blynk_connection.blynk.virtual_write(VIRTUAL_PINS['QUEEN_BEE_PREDICTION'], qnq_result)
-                logger.info(f"Successfully wrote QNQ result '{qnq_result}' to V{VIRTUAL_PINS['QUEEN_BEE_PREDICTION']}")
-            else:
-                logger.error("Blynk connection not available for QNQ notification")
-        except Exception as qnq_error:
-            logger.error(f"Error sending QNQ prediction to Blynk: {qnq_error}")
-            logger.error(traceback.format_exc())
-
-        # TOOT Notifications on configurable pin
-        try:
-            if toot_result:
-                logger.info(f"Attempting to write TOOT result '{toot_result}' to V{VIRTUAL_PINS['TOOTING_PREDICTION']}")
-                # Explicitly check if blynk is available before writing
-                if hasattr(blynk_connection, 'blynk') and blynk_connection.blynk:
-                    blynk_connection.blynk.virtual_write(VIRTUAL_PINS['TOOTING_PREDICTION'], toot_result)
-                    logger.info(f"Successfully wrote TOOT result '{toot_result}' to V{VIRTUAL_PINS['TOOTING_PREDICTION']}")
-                else:
-                    logger.error("Blynk connection not available for TOOT notification")
-        except Exception as toot_error:
-            logger.error(f"Error sending TOOT prediction to Blynk: {toot_error}")
-            logger.error(traceback.format_exc())
-
-        # Log the full payload for debugging and record-keeping
-        logger.debug(f"Blynk Notification Payload: {payload_json}")
-        
-        return True
-
-    except Exception as e:
-        logger.error(f"Comprehensive error in trigger_blynk_event: {e}")
-        logger.error(traceback.format_exc())
-        return False
+    # Rest of the existing function logic continues here...
 
 def analyze_audio_frequency(audio_path, sample_rate):
     """
@@ -1320,7 +1274,7 @@ def analyze_audio_frequency(audio_path, sample_rate):
     """
     try:
         # Load audio file
-        y, sr = librosa.load(audio_path, sr=sample_rate)
+        y, sr = librosa.load(audio_path)
         
         # Compute spectral features
         spectral_centroid = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
@@ -1330,15 +1284,19 @@ def analyze_audio_frequency(audio_path, sample_rate):
         # Compute dominant frequency
         fft = np.fft.fft(y)
         frequencies = np.fft.fftfreq(len(y), 1/sr)
-        dominant_freq_index = np.argmax(np.abs(fft[:len(fft)//2]))
-        dominant_frequency = frequencies[dominant_freq_index]
+        
+        # Filter out low-frequency noise (below 20 Hz)
+        MIN_FREQUENCY = 20
+        mask = np.abs(frequencies) >= MIN_FREQUENCY
+        filtered_freqs = frequencies[mask]
+        filtered_fft = np.abs(fft[mask])
         
         # Compute frequency range
         frequency_range = (np.min(frequencies[frequencies > 0]), np.max(frequencies))
         
         # Prepare frequency data for Google Sheets
         frequency_data = {
-            'dominant_frequency': round(dominant_frequency, 2),
+            'dominant_frequency': round(np.max(filtered_freqs), 2),
             'frequency_range': f"{round(frequency_range[0], 2)} - {round(frequency_range[1], 2)}",
             'spectral_centroid': round(np.mean(spectral_centroid), 2),
             'spectral_bandwidth': round(np.mean(spectral_bandwidth), 2),

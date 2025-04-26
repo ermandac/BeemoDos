@@ -4,6 +4,7 @@ import logging
 import os
 import json
 from django.conf import settings
+import aiohttp
 
 logger = logging.getLogger('audio_analyzer.discord_utils')
 
@@ -64,68 +65,67 @@ async def send_discord_message_async(message, image_path=None, prediction_data=N
             logger.error("Discord configuration missing. Set DISCORD_BOT_TOKEN and DISCORD_CHANNEL_ID in settings.")
             return False
         
-        # Create a Discord client
-        logger.info("Creating Discord client with intents")
-        intents = discord.Intents.default()
-        intents.message_content = True  # Explicitly enable message content intent
-        client = discord.Client(intents=intents)
-        
-        # Flag to track successful message sending
-        message_sent = False
-        
-        # Define what happens when the client is ready
-        @client.event
-        async def on_ready():
-            nonlocal message_sent
-            logger.info(f'Connected to Discord as {client.user}')
+        # Use async context manager for aiohttp session
+        async with aiohttp.ClientSession() as session:
+            # Create Discord API endpoint URL
+            url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
             
-            try:
-                # Get the channel
-                channel = client.get_channel(channel_id)
-                if not channel:
-                    logger.error(f'Could not find channel with ID {channel_id}')
-                    # Try to fetch the channel directly
-                    try:
-                        logger.info(f'Attempting to fetch channel directly with ID {channel_id}')
-                        channel = await client.fetch_channel(channel_id)
-                        logger.info(f'Successfully fetched channel: {channel.name}')
-                    except Exception as fetch_error:
-                        logger.error(f'Error fetching channel: {fetch_error}')
-                        return
-                
-                # Prepare the message
-                if prediction_data:
-                    # Use formatted notification if prediction data is provided
-                    discord_message = format_discord_notification(
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bot {token}",
+                "Content-Type": "application/json"
+            }
+            
+            # Prepare payload
+            if prediction_data:
+                # Use formatted notification if prediction data is provided
+                payload = {
+                    "content": format_discord_notification(
                         prediction_data, 
                         frequency_data
                     )
-                else:
-                    # Use default or custom message
-                    discord_message = message or "No message provided"
-                
-                # Send the message
-                await channel.send(discord_message)
-                
-                # Send image if provided
-                if image_path and os.path.exists(image_path):
-                    await channel.send(file=discord.File(image_path))
-                
-                message_sent = True
-                logger.info("Discord message sent successfully")
+                }
+            else:
+                # Use default or custom message
+                payload = {
+                    "content": message or "No message provided"
+                }
             
-            except Exception as e:
-                logger.error(f"Error sending Discord message: {e}")
-            finally:
-                await client.close()
-        
-        # Run the client
-        await client.start(token)
-        
-        return message_sent
+            # Send message
+            async with session.post(url, headers=headers, json=payload) as response:
+                if response.status == 200:
+                    logger.info("Discord message sent successfully")
+                    
+                    # Send image if provided
+                    if image_path and os.path.exists(image_path):
+                        # Create Discord API endpoint URL for image upload
+                        image_url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+                        
+                        # Prepare headers for image upload
+                        image_headers = {
+                            "Authorization": f"Bot {token}",
+                            "Content-Type": "multipart/form-data"
+                        }
+                        
+                        # Prepare payload for image upload
+                        image_payload = aiohttp.FormData()
+                        image_payload.add_field('file', open(image_path, 'rb'), filename=os.path.basename(image_path))
+                        image_payload.add_field('payload_json', '{"content": ""}')
+                        
+                        # Send image
+                        async with session.post(image_url, headers=image_headers, data=image_payload) as image_response:
+                            if image_response.status == 200:
+                                logger.info("Discord image sent successfully")
+                            else:
+                                logger.error(f"Failed to send Discord image. Status: {image_response.status}, Response: {await image_response.text()}")
+                    
+                    return True
+                else:
+                    logger.error(f"Failed to send Discord message. Status: {response.status}, Response: {await response.text()}")
+                    return False
     
     except Exception as e:
-        logger.error(f"Unexpected error in send_discord_message_async: {e}")
+        logger.error(f"Error in send_discord_message_async: {e}")
         return False
 
 def send_discord_message(message, image_path=None, prediction_data=None, frequency_data=None):
