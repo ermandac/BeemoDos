@@ -1264,6 +1264,126 @@ def trigger_blynk_event(
 
     # Rest of the existing function logic continues here...
 
+def diagnose_audio_devices():
+    """
+    Enhanced audio device diagnosis with USB device prioritization
+    """
+    try:
+        import sounddevice as sd
+        
+        # Get all devices from sounddevice
+        try:
+            all_devices = sd.query_devices()
+            logger.info(f"Total sounddevice devices: {len(all_devices)}")
+            
+            input_devices = []
+            device_details = []
+            usb_input_devices = []
+            
+            for i, device in enumerate(all_devices):
+                if device['max_input_channels'] > 0:
+                    device_info = {
+                        'index': i,
+                        'name': device['name'],
+                        'max_input_channels': device['max_input_channels'],
+                        'default_samplerate': device.get('default_samplerate', 'Unknown')
+                    }
+                    input_devices.append(i)
+                    device_details.append(device_info)
+                    
+                    # Prioritize USB audio devices
+                    if 'usb' in device['name'].lower() or 'pnp' in device['name'].lower():
+                        usb_input_devices.append(i)
+                    
+                    logger.info(f"Input Device {i}: {device_info}")
+            
+            # Prefer USB input devices if available
+            if usb_input_devices:
+                logger.info(f"Prioritizing USB input devices: {usb_input_devices}")
+                return usb_input_devices, [device_details[usb_input_devices[0]]]
+            
+            return input_devices, device_details
+        
+        except Exception as device_error:
+            logger.error(f"Sounddevice device query error: {device_error}")
+            return [], []
+    
+    except ImportError:
+        logger.error("Sounddevice library not installed")
+        return [], []
+    except Exception as e:
+        logger.error(f"Unexpected error in audio device diagnosis: {e}")
+        return [], []
+
+def record_and_analyze_audio(request):
+    """
+    Record audio from the first available input device and analyze it.
+    
+    Provides comprehensive error handling and device detection.
+    """
+    try:
+        # Diagnose available audio devices
+        input_devices, device_details = diagnose_audio_devices()
+        
+        # Check if any input devices are available
+        if not input_devices:
+            error_message = "No audio input devices detected. Please connect a microphone or audio input device."
+            logger.error(error_message)
+            return JsonResponse({
+                'status': 'error', 
+                'message': error_message,
+                'diagnostic_info': {
+                    'total_devices': len(sd.query_devices()),
+                    'input_devices': device_details
+                }
+            }, status=400)
+        
+        # Use the first available input device (prioritizing USB)
+        device_index = input_devices[0]
+        logger.info(f"Using audio input device: {device_details[0]['name']} (Index: {device_index})")
+        
+        # Rest of the existing recording logic remains the same
+        duration = request.POST.get('duration', 5)  # Default 5 seconds
+        sample_rate = request.POST.get('sample_rate', 44100)  # Default 44.1 kHz
+        
+        # Record audio from specified device
+        recording = sd.rec(
+            int(duration * sample_rate), 
+            samplerate=sample_rate, 
+            channels=1, 
+            dtype='float64',
+            device=device_index
+        )
+        sd.wait()
+        
+        # Save recording
+        audio_filename = f'bee_recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
+        audio_path = os.path.join(settings.MEDIA_ROOT, audio_filename)
+        
+        # Ensure media directory exists
+        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
+        
+        # Write audio file using scipy
+        wavfile.write(audio_path, sample_rate, (recording * 32767).astype(np.int16))
+        
+        # Perform frequency analysis
+        frequency_results = analyze_audio_frequency(audio_path, sample_rate)
+        
+        return JsonResponse({
+            'status': 'success', 
+            'message': 'Audio recorded and analyzed successfully',
+            'filename': audio_filename,
+            'device': device_index,
+            'frequency_analysis': frequency_results
+        })
+    
+    except Exception as e:
+        logger.error(f"Audio recording and analysis error: {str(e)}")
+        return JsonResponse({
+            'status': 'error', 
+            'message': str(e)
+        }, status=500)
+
 def analyze_audio_frequency(audio_path, sample_rate):
     """
     Perform frequency analysis on the recorded audio
@@ -1311,52 +1431,3 @@ def analyze_audio_frequency(audio_path, sample_rate):
     except Exception as e:
         logger.error(f"Frequency analysis error: {str(e)}")
         return None
-
-@csrf_exempt
-def record_and_analyze_audio(request):
-    """
-    Record audio and perform frequency analysis
-    """
-    try:
-        # Get device and recording parameters from request
-        device_index = int(request.POST.get('device', 0))
-        duration = float(request.POST.get('duration', 5))  # seconds
-        sample_rate = int(request.POST.get('sample_rate', 44100))  # Hz
-        
-        # Record audio from specified device
-        recording = sd.rec(
-            int(duration * sample_rate), 
-            samplerate=sample_rate, 
-            channels=1, 
-            dtype='float64',
-            device=device_index
-        )
-        sd.wait()
-        
-        # Save recording
-        audio_filename = f'bee_recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
-        audio_path = os.path.join(settings.MEDIA_ROOT, audio_filename)
-        
-        # Ensure media directory exists
-        os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
-        
-        # Write audio file using scipy
-        wavfile.write(audio_path, sample_rate, (recording * 32767).astype(np.int16))
-        
-        # Perform frequency analysis
-        frequency_results = analyze_audio_frequency(audio_path, sample_rate)
-        
-        return JsonResponse({
-            'status': 'success', 
-            'message': 'Audio recorded and analyzed successfully',
-            'filename': audio_filename,
-            'device': device_index,
-            'frequency_analysis': frequency_results
-        })
-    
-    except Exception as e:
-        logger.error(f"Audio recording and analysis error: {str(e)}")
-        return JsonResponse({
-            'status': 'error', 
-            'message': str(e)
-        }, status=500)
