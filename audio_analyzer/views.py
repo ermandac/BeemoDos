@@ -1266,53 +1266,96 @@ def trigger_blynk_event(
 
 def diagnose_audio_devices():
     """
-    Enhanced audio device diagnosis with USB device prioritization
+    Enhanced audio device diagnosis with comprehensive error handling and logging
     """
+    import sounddevice as sd
+    import traceback
+    import sys
+    
+    # Detailed system and library information logging
+    logger.info("Python Version: %s", sys.version)
+    logger.info("Platform: %s", sys.platform)
+    
     try:
-        import sounddevice as sd
-        
-        # Get all devices from sounddevice
+        # Attempt to get device list with error handling
         try:
-            all_devices = sd.query_devices()
-            logger.info(f"Total sounddevice devices: {len(all_devices)}")
-            
+            # Explicitly query input devices
+            input_devices = sd.query_devices(kind='input')
+            logger.info(f"Total input devices queried: {len(input_devices)}")
+        except Exception as query_error:
+            logger.error(f"Error querying input devices: {query_error}")
+            logger.error(traceback.format_exc())
             input_devices = []
-            device_details = []
-            usb_input_devices = []
+        
+        # Comprehensive device detection
+        detected_devices = []
+        usb_input_devices = []
+        
+        try:
+            # Get all devices, not just input devices
+            all_devices = sd.query_devices()
+            logger.info(f"Total devices found: {len(all_devices)}")
             
             for i, device in enumerate(all_devices):
-                if device['max_input_channels'] > 0:
-                    device_info = {
-                        'index': i,
-                        'name': device['name'],
-                        'max_input_channels': device['max_input_channels'],
-                        'default_samplerate': device.get('default_samplerate', 'Unknown')
-                    }
-                    input_devices.append(i)
-                    device_details.append(device_info)
-                    
-                    # Prioritize USB audio devices
-                    if 'usb' in device['name'].lower() or 'pnp' in device['name'].lower():
-                        usb_input_devices.append(i)
-                    
-                    logger.info(f"Input Device {i}: {device_info}")
-            
-            # Prefer USB input devices if available
-            if usb_input_devices:
-                logger.info(f"Prioritizing USB input devices: {usb_input_devices}")
-                return usb_input_devices, [device_details[usb_input_devices[0]]]
-            
-            return input_devices, device_details
+                try:
+                    # Check if device has input channels
+                    if device.get('max_input_channels', 0) > 0:
+                        device_info = {
+                            'index': i,
+                            'name': device.get('name', 'Unknown Device'),
+                            'max_input_channels': device.get('max_input_channels', 0),
+                            'default_samplerate': device.get('default_samplerate', 'Unknown')
+                        }
+                        
+                        # Log detailed device information
+                        logger.info(f"Input Device {i}: {device_info}")
+                        
+                        detected_devices.append(i)
+                        
+                        # Prioritize USB devices
+                        if ('usb' in device.get('name', '').lower() or 
+                            'pnp' in device.get('name', '').lower()):
+                            usb_input_devices.append(i)
+                
+                except Exception as device_error:
+                    logger.error(f"Error processing device {i}: {device_error}")
         
-        except Exception as device_error:
-            logger.error(f"Sounddevice device query error: {device_error}")
-            return [], []
+        except Exception as all_devices_error:
+            logger.error(f"Comprehensive device detection error: {all_devices_error}")
+            logger.error(traceback.format_exc())
+        
+        # Prioritize USB devices if available
+        if usb_input_devices:
+            logger.info(f"Prioritizing USB input devices: {usb_input_devices}")
+            return usb_input_devices, [
+                {
+                    'index': usb_input_devices[0],
+                    'name': sd.query_devices(usb_input_devices[0])['name'],
+                    'max_input_channels': sd.query_devices(usb_input_devices[0])['max_input_channels']
+                }
+            ]
+        
+        # Fallback to all detected input devices
+        if detected_devices:
+            logger.info(f"Using first available input device: {detected_devices[0]}")
+            return detected_devices, [
+                {
+                    'index': detected_devices[0],
+                    'name': sd.query_devices(detected_devices[0])['name'],
+                    'max_input_channels': sd.query_devices(detected_devices[0])['max_input_channels']
+                }
+            ]
+        
+        # No devices found
+        logger.error("No input devices detected")
+        return [], []
     
     except ImportError:
         logger.error("Sounddevice library not installed")
         return [], []
-    except Exception as e:
-        logger.error(f"Unexpected error in audio device diagnosis: {e}")
+    except Exception as unexpected_error:
+        logger.error(f"Unexpected error in audio device diagnosis: {unexpected_error}")
+        logger.error(traceback.format_exc())
         return [], []
 
 def record_and_analyze_audio(request):
