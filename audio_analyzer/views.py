@@ -106,18 +106,11 @@ def record_audio(request):
 def get_audio_devices(request):
     """
     List available audio input devices with comprehensive system diagnostics
-    
-    Enhanced features:
-    - More sophisticated physical device detection
-    - USB device priority
-    - Detailed device capability assessment
-    - Advanced error diagnostics
     """
     import sys
     import platform
     import logging
     import traceback
-    import re
 
     # Configure detailed logging
     logging.basicConfig(level=logging.DEBUG)
@@ -135,141 +128,106 @@ def get_audio_devices(request):
     logger.info(f"System Diagnostics: {system_info}")
 
     try:
+        # Import sounddevice here to catch any import errors
         import sounddevice as sd
-        import usb.core
-        import usb.util
-
-        try:
-            # Query all devices
-            all_devices = sd.query_devices()
-            logger.info(f"Total devices found: {len(all_devices)}")
-        except Exception as query_error:
-            logger.error(f"Error in sd.query_devices(): {query_error}")
-            return JsonResponse({
-                'status': 'error',
-                'message': f'Failed to query devices: {str(query_error)}',
-                'system_info': system_info
-            }, status=500)
-
-        # Enhanced device filtering
-        def is_physical_device(device):
-            """
-            Determine if a device is likely a physical input device
-            """
-            non_physical_patterns = [
-                r'pipewire', r'pulse', r'default', r'null', 
-                r'monitor', r'virtual', r'loopback'
-            ]
-            device_name = device['name'].lower()
-            
-            # Exclude devices matching non-physical patterns
-            if any(re.search(pattern, device_name) for pattern in non_physical_patterns):
-                return False
-            
-            # Prioritize devices with:
-            # 1. More than 1 input channel
-            # 2. Reasonable sample rates
-            return (
-                device['max_input_channels'] > 0 and 
-                device.get('default_samplerate', 0) > 0 and 
-                device.get('default_samplerate', 0) <= 96000
-            )
-
-        # Detect USB audio devices
-        def detect_usb_audio_devices():
-            """
-            Detect USB audio devices using pyusb
-            """
-            usb_audio_devices = []
-            try:
-                # Find all USB devices
-                devices = usb.core.find(find_all=True)
-                for dev in devices:
-                    # Check if device is an audio device
-                    if dev.bDeviceClass == 0x01:  # Audio device class
-                        try:
-                            manufacturer = usb.util.get_string(dev, dev.iManufacturer)
-                            product = usb.util.get_string(dev, dev.iProduct)
-                            usb_audio_devices.append({
-                                'manufacturer': manufacturer,
-                                'product': product,
-                                'vendor_id': dev.idVendor,
-                                'product_id': dev.idProduct
-                            })
-                        except Exception as e:
-                            logger.warning(f"Could not get USB device details: {e}")
-            except Exception as usb_error:
-                logger.error(f"USB device detection error: {usb_error}")
-            
-            return usb_audio_devices
-
-        # Comprehensive device detection
-        input_devices = []
-        physical_input_devices = []
-        usb_audio_devices = detect_usb_audio_devices()
-
-        for i, device in enumerate(all_devices):
-            try:
-                if is_physical_device(device):
-                    device_info = {
-                        'index': i, 
-                        'name': device['name'], 
-                        'max_input_channels': device['max_input_channels'],
-                        'default_samplerate': device.get('default_samplerate', 'Unknown'),
-                        'hostapi': device.get('hostapi', 'Unknown'),
-                        'is_usb': any(
-                            device['name'].lower() in (udev.get('product', '').lower() or 
-                                                       udev.get('manufacturer', '').lower()) 
-                            for udev in usb_audio_devices
-                        )
-                    }
-                    input_devices.append(device_info)
-                    physical_input_devices.append(device_info)
-                    logger.info(f"Detected Physical Input Device: {device_info}")
-
-            except Exception as device_error:
-                logger.error(f"Error processing device {i}: {device_error}")
-
-        # Prepare response
-        response_data = {
-            'status': 'success' if physical_input_devices else 'warning', 
-            'devices': physical_input_devices,
-            'all_devices': input_devices,
-            'usb_audio_devices': usb_audio_devices,
-            'system_info': system_info,
-        }
-
-        if physical_input_devices:
-            response_data['message'] = f'Found {len(physical_input_devices)} physical input device(s)'
-        else:
-            response_data.update({
-                'message': 'No physical input devices detected. Only system audio interfaces found.',
-                'diagnostic_hint': 'Check USB microphone connection. Detected devices: ' + 
-                                   ', '.join(device['name'] for device in input_devices)
-            })
-
-        return JsonResponse(response_data)
-
-    except ImportError as import_error:
-        # Specific handling for library import failures
-        missing_libs = []
-        try:
-            import sounddevice
-        except ImportError:
-            missing_libs.append('sounddevice')
         
         try:
-            import usb.core
-        except ImportError:
-            missing_libs.append('pyusb')
+            # Comprehensive device query with additional error handling
+            try:
+                # Query all devices
+                all_devices = sd.query_devices()
+                logger.info(f"Total devices found: {len(all_devices)}")
+            except Exception as query_error:
+                logger.error(f"Error in sd.query_devices(): {query_error}")
+                logger.error(f"Detailed traceback: {traceback.format_exc()}")
+                return JsonResponse({
+                    'status': 'error',
+                    'message': f'Failed to query devices: {str(query_error)}',
+                    'system_info': system_info
+                }, status=500)
 
-        logger.error(f"Failed to import libraries: {missing_libs}")
+            # Try to get default input device
+            try:
+                default_input = sd.default.device[0]
+                logger.info(f"Default input device index: {default_input}")
+            except Exception as default_error:
+                logger.warning(f"Could not retrieve default input device: {default_error}")
+                default_input = None
+
+            # Get the list of input devices with comprehensive details
+            input_devices = []
+            physical_input_devices = []
+            for i, device in enumerate(all_devices):
+                try:
+                    # Only include devices with input channels
+                    if device['max_input_channels'] > 0:
+                        device_info = {
+                            'index': i, 
+                            'name': device['name'], 
+                            'max_input_channels': device['max_input_channels'],
+                            'default_samplerate': device.get('default_samplerate', 'Unknown'),
+                            'hostapi': device.get('hostapi', 'Unknown'),
+                            'is_default_input': i == default_input
+                        }
+                        input_devices.append(device_info)
+                        logger.info(f"Detected Input Device: {device_info}")
+
+                        # Identify physical input devices (excluding system audio interfaces)
+                        non_physical_names = ['pipewire', 'pulse', 'default', 'null']
+                        if not any(name in device['name'].lower() for name in non_physical_names):
+                            physical_input_devices.append(device_info)
+                except Exception as device_error:
+                    logger.error(f"Error processing device {i}: {device_error}")
+
+            # Prepare response based on device detection
+            if physical_input_devices:
+                # Physical input devices found
+                return JsonResponse({
+                    'status': 'success', 
+                    'devices': physical_input_devices,
+                    'all_devices': input_devices,  # Include all devices for full transparency
+                    'system_info': system_info,
+                    'message': f'Found {len(physical_input_devices)} physical input device(s)'
+                })
+            elif input_devices:
+                # Only system audio interfaces found
+                return JsonResponse({
+                    'status': 'warning', 
+                    'devices': [],
+                    'all_devices': input_devices,
+                    'system_info': system_info,
+                    'message': 'No physical input devices detected. Only system audio interfaces found.',
+                    'diagnostic_hint': 'Check USB microphone connection. Detected devices: ' + 
+                                       ', '.join(device['name'] for device in input_devices)
+                })
+            else:
+                # No input devices at all
+                return JsonResponse({
+                    'status': 'error', 
+                    'devices': [],
+                    'system_info': system_info,
+                    'message': 'No audio input devices detected.',
+                    'diagnostic_hint': 'Ensure audio input devices are connected and recognized by the system.'
+                })
+        
+        except Exception as device_error:
+            # More detailed error logging for device query
+            logger.error(f"Comprehensive device error: {device_error}")
+            logger.error(f"Detailed traceback: {traceback.format_exc()}")
+            return JsonResponse({
+                'status': 'error', 
+                'message': f'Failed to process audio devices: {str(device_error)}',
+                'system_info': system_info
+            }, status=500)
+    
+    except ImportError as import_error:
+        # Specific handling for sounddevice import failure
+        logger.error(f"Failed to import sounddevice: {import_error}")
         return JsonResponse({
             'status': 'error', 
-            'message': f'Missing libraries: {", ".join(missing_libs)}. Please install using pip.',
+            'message': f'Sounddevice library not installed: {str(import_error)}',
             'system_info': system_info
         }, status=500)
-
     except Exception as e:
         # Catch-all for any other unexpected errors
         logger.error(f"Unexpected error in audio device listing: {e}")
@@ -824,12 +782,12 @@ def analyze_audio(request):
                                 
                                 # Perform FFT
                                 fft_data = np.fft.fft(samples)
-                                frequencies = np.fft.fftfreq(len(samples), 1/sample_rate)
+                                freqs = np.fft.fftfreq(len(samples), 1/sample_rate)
                                 
                                 # Filter out low-frequency noise (below 20 Hz)
                                 MIN_FREQUENCY = 20
-                                mask = np.abs(frequencies) >= MIN_FREQUENCY
-                                filtered_freqs = frequencies[mask]
+                                mask = np.abs(freqs) >= MIN_FREQUENCY
+                                filtered_freqs = freqs[mask]
                                 filtered_fft = np.abs(fft_data[mask])
                                 
                                 # Compute frequency statistics
@@ -1372,60 +1330,25 @@ def analyze_audio_frequency(audio_path, sample_rate):
         # Compute dominant frequency
         fft = np.fft.fft(y)
         frequencies = np.fft.fftfreq(len(y), 1/sr)
+        dominant_freq_index = np.argmax(np.abs(fft[:len(fft)//2]))
+        dominant_frequency = frequencies[dominant_freq_index]
         
-        # Filter out low-frequency noise (below 20 Hz)
-        MIN_FREQUENCY = 20
-        mask = np.abs(frequencies) >= MIN_FREQUENCY
-        filtered_freqs = frequencies[mask]
-        filtered_fft = np.abs(fft[mask])
+        # Compute frequency range
+        frequency_range = (np.min(frequencies[frequencies > 0]), np.max(frequencies))
         
-        # Compute frequency statistics
-        if len(filtered_freqs) > 0 and len(filtered_fft) > 0:
-            # Find the index of the maximum amplitude in the filtered FFT data
-            max_idx = np.argmax(filtered_fft)
-            peak_freq = filtered_freqs[max_idx]
-            avg_freq = np.mean(np.abs(filtered_freqs))
-            
-            # Compute RMS amplitude for activity classification
-            rms_amplitude = np.sqrt(np.mean(y**2)) / 32768.0
-            
-            # Classify activity level based on frequency and amplitude
-            if avg_freq < 100:
-                base_level = "Low"
-            elif 100 <= avg_freq <= 300:
-                base_level = "Normal"
-            elif 300 < avg_freq <= 500:
-                base_level = "High"
-            else:
-                base_level = "Chaotic"
-            
-            # Amplitude-based refinement
-            if rms_amplitude < 0.1:
-                activity = f"Very {base_level}"
-            elif 0.1 <= rms_amplitude < 0.3:
-                activity = f"{base_level}"
-            elif 0.3 <= rms_amplitude < 0.6:
-                activity = f"Intense {base_level}"
-            else:
-                activity = f"Extremely {base_level}"
-            
-            # Add frequency information to the message
-            frequency_data = {
-                'dominant_frequency': round(peak_freq, 2),
-                'frequency_range': f"{round(np.min(filtered_freqs), 2)} - {round(np.max(filtered_freqs), 2)}",
-                'spectral_centroid': round(np.mean(spectral_centroid), 2),
-                'spectral_bandwidth': round(np.mean(spectral_bandwidth), 2),
-                'spectral_rolloff': round(np.mean(spectral_rolloff), 2)
-            }
-            
-            # Save frequency data to Google Sheets
-            save_frequency_to_sheets(frequency_data)
-            
-            return frequency_data
+        # Prepare frequency data for Google Sheets
+        frequency_data = {
+            'dominant_frequency': round(dominant_frequency, 2),
+            'frequency_range': f"{round(frequency_range[0], 2)} - {round(frequency_range[1], 2)}",
+            'spectral_centroid': round(np.mean(spectral_centroid), 2),
+            'spectral_bandwidth': round(np.mean(spectral_bandwidth), 2),
+            'spectral_rolloff': round(np.mean(spectral_rolloff), 2)
+        }
         
-        else:
-            logger.warning("No valid frequency data found after filtering")
-            return None
+        # Save frequency data to Google Sheets
+        save_frequency_to_sheets(frequency_data)
+        
+        return frequency_data
     
     except Exception as e:
         logger.error(f"Frequency analysis error: {str(e)}")
