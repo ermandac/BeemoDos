@@ -1277,39 +1277,31 @@ def diagnose_audio_devices():
     logger.info("Platform: %s", sys.platform)
     
     try:
-        # Attempt to get device list with error handling
+        # Get all devices from sounddevice
         try:
-            # Explicitly query input devices
-            input_devices = sd.query_devices(kind='input')
-            logger.info(f"Total input devices queried: {len(input_devices)}")
-        except Exception as query_error:
-            logger.error(f"Error querying input devices: {query_error}")
-            logger.error(traceback.format_exc())
-            input_devices = []
-        
-        # Comprehensive device detection
-        detected_devices = []
-        usb_input_devices = []
-        
-        try:
-            # Get all devices, not just input devices
             all_devices = sd.query_devices()
             logger.info(f"Total devices found: {len(all_devices)}")
             
+            # Comprehensive device detection
+            detected_devices = []
+            usb_input_devices = []
+            
             for i, device in enumerate(all_devices):
                 try:
-                    # Check if device has input channels
+                    # Log details for ALL devices, not just input devices
+                    device_info = {
+                        'index': i,
+                        'name': device.get('name', 'Unknown Device'),
+                        'input_channels': device.get('max_input_channels', 0),
+                        'output_channels': device.get('max_output_channels', 0),
+                        'default_samplerate': device.get('default_samplerate', 'Unknown')
+                    }
+                    
+                    # Log detailed device information
+                    logger.info(f"Device {i}: {device_info}")
+                    
+                    # Still track devices with input channels
                     if device.get('max_input_channels', 0) > 0:
-                        device_info = {
-                            'index': i,
-                            'name': device.get('name', 'Unknown Device'),
-                            'max_input_channels': device.get('max_input_channels', 0),
-                            'default_samplerate': device.get('default_samplerate', 'Unknown')
-                        }
-                        
-                        # Log detailed device information
-                        logger.info(f"Input Device {i}: {device_info}")
-                        
                         detected_devices.append(i)
                         
                         # Prioritize USB devices
@@ -1319,36 +1311,37 @@ def diagnose_audio_devices():
                 
                 except Exception as device_error:
                     logger.error(f"Error processing device {i}: {device_error}")
+            
+            # Prioritize USB devices if available
+            if usb_input_devices:
+                logger.info(f"Prioritizing USB input devices: {usb_input_devices}")
+                return usb_input_devices, [
+                    {
+                        'index': usb_input_devices[0],
+                        'name': sd.query_devices(usb_input_devices[0])['name'],
+                        'max_input_channels': sd.query_devices(usb_input_devices[0])['max_input_channels']
+                    }
+                ]
+            
+            # Fallback to all detected input devices
+            if detected_devices:
+                logger.info(f"Using first available input device: {detected_devices[0]}")
+                return detected_devices, [
+                    {
+                        'index': detected_devices[0],
+                        'name': sd.query_devices(detected_devices[0])['name'],
+                        'max_input_channels': sd.query_devices(detected_devices[0])['max_input_channels']
+                    }
+                ]
+            
+            # No devices found
+            logger.error("No input devices detected")
+            return [], []
         
         except Exception as all_devices_error:
             logger.error(f"Comprehensive device detection error: {all_devices_error}")
             logger.error(traceback.format_exc())
-        
-        # Prioritize USB devices if available
-        if usb_input_devices:
-            logger.info(f"Prioritizing USB input devices: {usb_input_devices}")
-            return usb_input_devices, [
-                {
-                    'index': usb_input_devices[0],
-                    'name': sd.query_devices(usb_input_devices[0])['name'],
-                    'max_input_channels': sd.query_devices(usb_input_devices[0])['max_input_channels']
-                }
-            ]
-        
-        # Fallback to all detected input devices
-        if detected_devices:
-            logger.info(f"Using first available input device: {detected_devices[0]}")
-            return detected_devices, [
-                {
-                    'index': detected_devices[0],
-                    'name': sd.query_devices(detected_devices[0])['name'],
-                    'max_input_channels': sd.query_devices(detected_devices[0])['max_input_channels']
-                }
-            ]
-        
-        # No devices found
-        logger.error("No input devices detected")
-        return [], []
+            return [], []
     
     except ImportError:
         logger.error("Sounddevice library not installed")
