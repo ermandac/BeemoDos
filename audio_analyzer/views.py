@@ -105,137 +105,45 @@ def record_audio(request):
 
 def get_audio_devices(request):
     """
-    List available audio input devices with comprehensive system diagnostics
+    List available audio input devices
     """
-    import sys
-    import platform
-    import logging
-    import traceback
-
-    # Configure detailed logging
-    logging.basicConfig(level=logging.DEBUG)
-    logger = logging.getLogger(__name__)
-
-    # System diagnostics
-    system_info = {
-        'python_version': sys.version,
-        'platform': platform.platform(),
-        'machine': platform.machine(),
-        'processor': platform.processor(),
-        'system': platform.system(),
-        'release': platform.release(),
-    }
-    logger.info(f"System Diagnostics: {system_info}")
-
     try:
-        # Import sounddevice here to catch any import errors
         import sounddevice as sd
         
-        try:
-            # Comprehensive device query with additional error handling
-            try:
-                # Query all devices
-                all_devices = sd.query_devices()
-                logger.info(f"Total devices found: {len(all_devices)}")
-            except Exception as query_error:
-                logger.error(f"Error in sd.query_devices(): {query_error}")
-                logger.error(f"Detailed traceback: {traceback.format_exc()}")
-                return JsonResponse({
-                    'status': 'error',
-                    'message': f'Failed to query devices: {str(query_error)}',
-                    'system_info': system_info
-                }, status=500)
-
-            # Try to get default input device
-            try:
-                default_input = sd.default.device[0]
-                logger.info(f"Default input device index: {default_input}")
-            except Exception as default_error:
-                logger.warning(f"Could not retrieve default input device: {default_error}")
-                default_input = None
-
-            # Get the list of input devices with comprehensive details
-            input_devices = []
-            physical_input_devices = []
-            for i, device in enumerate(all_devices):
-                try:
-                    # Only include devices with input channels
-                    if device['max_input_channels'] > 0:
-                        device_info = {
-                            'index': i, 
-                            'name': device['name'], 
-                            'max_input_channels': device['max_input_channels'],
-                            'default_samplerate': device.get('default_samplerate', 'Unknown'),
-                            'hostapi': device.get('hostapi', 'Unknown'),
-                            'is_default_input': i == default_input
-                        }
-                        input_devices.append(device_info)
-                        logger.info(f"Detected Input Device: {device_info}")
-
-                        # Identify physical input devices (excluding system audio interfaces)
-                        non_physical_names = ['pipewire', 'pulse', 'default', 'null']
-                        if not any(name in device['name'].lower() for name in non_physical_names):
-                            physical_input_devices.append(device_info)
-                except Exception as device_error:
-                    logger.error(f"Error processing device {i}: {device_error}")
-
-            # Prepare response based on device detection
-            if physical_input_devices:
-                # Physical input devices found
-                return JsonResponse({
-                    'status': 'success', 
-                    'devices': physical_input_devices,
-                    'all_devices': input_devices,  # Include all devices for full transparency
-                    'system_info': system_info,
-                    'message': f'Found {len(physical_input_devices)} physical input device(s)'
-                })
-            elif input_devices:
-                # Only system audio interfaces found
-                return JsonResponse({
-                    'status': 'warning', 
-                    'devices': [],
-                    'all_devices': input_devices,
-                    'system_info': system_info,
-                    'message': 'No physical input devices detected. Only system audio interfaces found.',
-                    'diagnostic_hint': 'Check USB microphone connection. Detected devices: ' + 
-                                       ', '.join(device['name'] for device in input_devices)
-                })
-            else:
-                # No input devices at all
-                return JsonResponse({
-                    'status': 'error', 
-                    'devices': [],
-                    'system_info': system_info,
-                    'message': 'No audio input devices detected.',
-                    'diagnostic_hint': 'Ensure audio input devices are connected and recognized by the system.'
-                })
+        # Get the list of all devices
+        all_devices = sd.query_devices()
         
-        except Exception as device_error:
-            # More detailed error logging for device query
-            logger.error(f"Comprehensive device error: {device_error}")
-            logger.error(f"Detailed traceback: {traceback.format_exc()}")
-            return JsonResponse({
-                'status': 'error', 
-                'message': f'Failed to process audio devices: {str(device_error)}',
-                'system_info': system_info
-            }, status=500)
-    
-    except ImportError as import_error:
-        # Specific handling for sounddevice import failure
-        logger.error(f"Failed to import sounddevice: {import_error}")
+        # Get the list of input devices
+        input_devices = [
+            {
+                'index': i, 
+                'name': device['name'], 
+                'max_input_channels': device['max_input_channels']
+            } 
+            for i, device in enumerate(all_devices) 
+            if device['max_input_channels'] > 0
+        ]
+        
+        # Log input devices for debugging
+        logger.info(f"Input devices found: {input_devices}")
+        
+        return JsonResponse({
+            'status': 'success', 
+            'devices': input_devices
+        })
+    except ImportError as e:
+        logger.error(f"Failed to import sounddevice: {str(e)}")
         return JsonResponse({
             'status': 'error', 
-            'message': f'Sounddevice library not installed: {str(import_error)}',
-            'system_info': system_info
+            'message': f'Sounddevice import failed: {str(e)}'
         }, status=500)
     except Exception as e:
-        # Catch-all for any other unexpected errors
-        logger.error(f"Unexpected error in audio device listing: {e}")
-        logger.error(f"Detailed traceback: {traceback.format_exc()}")
+        import traceback
+        logger.error(f"Error listing audio devices: {str(e)}")
+        logger.error(traceback.format_exc())
         return JsonResponse({
             'status': 'error', 
-            'message': str(e),
-            'system_info': system_info
+            'message': str(e)
         }, status=500)
 
 def generate_spectrogram(request=None, audio_path=None, predictor_type='BNQ'):
