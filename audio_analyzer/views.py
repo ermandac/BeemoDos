@@ -17,9 +17,11 @@ import json
 import soundfile as sf
 import re
 import traceback
+import requests
+import time
+from datetime import datetime, timedelta  # Added timedelta for good measure
 
 import tensorflow as tf
-from datetime import datetime
 
 import sys
 sys.path.append(os.path.join(settings.BASE_DIR, 'predictors'))
@@ -184,7 +186,7 @@ def generate_spectrogram(request=None, audio_path=None, predictor_type='BNQ'):
             }, status=404)
         
         # Generate timestamp for unique filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = ""
         
         # Create spectrogram filename with predictor type
         spectrogram_filename = f'BeemoDosSpectrogram_{predictor_type}_{timestamp}.png'
@@ -260,7 +262,7 @@ def record_and_generate_spectrograms(request):
         analysis_results = {}
 
         # Create directory for this recording session
-        session_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        session_timestamp = ""
         recordings_base_dir = os.path.join(settings.MEDIA_ROOT, 'recordings')
         session_dir = os.path.join(recordings_base_dir, session_timestamp)
         os.makedirs(session_dir, exist_ok=True)
@@ -618,8 +620,7 @@ def analyze_audio(request):
         # Send notification to Discord with analysis results
         try:
             # Format the message with prediction results in JSON-like format
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            message = "**BeemoDos Analysis Results** - " + timestamp + "\n"
+            message = "**BeemoDos Analysis Results**\n"
             message += "```json\n{"
             
             # Add BNB result if available
@@ -663,8 +664,6 @@ def analyze_audio(request):
             
             # Add recording analysis information
             message += "**Recording Analysis**\n"
-            message += "Date: " + datetime.now().strftime("%Y-%m-%d") + "\n"
-            message += "Time: " + datetime.now().strftime("%H:%M:%S") + "\n"
             
             # Try to extract frequency information if available
             try:
@@ -827,7 +826,7 @@ def analyze_audio(request):
                                     f"Caution: Consider preparing to introduce a new queen to maintain hive health."
                     },
                     'TOOT': {
-                        'positive': f"🔊 Queen Tooting Detected (Confidence: {confidence:.2f}%)\n"
+                        'positive': f"🔊 Queen Bee Tooting Detected (Confidence: {confidence:.2f}%)\n"
                                     f"Insight: Potential queen emergence or competitive behavior observed. Monitor closely.",
                         'negative': f"🔊 Queen Communication: No Tooting Detected (Confidence: {confidence:.2f}%)\n"
                                     f"Current Status: No significant queen communication signals at this time."
@@ -905,25 +904,20 @@ def retrain_model(request):
     Expects JSON payload with:
     - model_type: 'bnq', 'qnq', or 'toot'
     - true_label: 0 or 1
-    - spectrogram_path: path to the spectrogram image
+    - spectrogram_path: relative path to the spectrogram image from media directory
     """
-    # Log full request details for debugging
-    logger.info(f"Received retraining request: {request.method}")
-    logger.info(f"Request headers: {request.headers}")
-    
+    # Use Django's settings to get the media root path
+    MEDIA_BASE_PATH = settings.MEDIA_ROOT
+
     try:
-        # Handle different content types
         if request.method == 'POST':
             # Try parsing JSON from different sources
             try:
-                # Try parsing from request.body
                 data = json.loads(request.body.decode('utf-8'))
             except json.JSONDecodeError:
                 try:
-                    # Try parsing from request.POST
                     data = request.POST.dict()
                 except Exception:
-                    # Fallback to request data
                     data = request.data if hasattr(request, 'data') else {}
             
             # Log received data for debugging
@@ -932,7 +926,17 @@ def retrain_model(request):
             # Extract and validate parameters
             model_type = str(data.get('model_type', '')).lower().strip()
             true_label = data.get('true_label')
-            spectrogram_path = data.get('spectrogram_path')
+            spectrogram_path = data.get('spectrogram_path', '')
+
+            # Clean spectrogram path by removing URL prefixes
+            if spectrogram_path.startswith('http://') or spectrogram_path.startswith('https://'):
+                from urllib.parse import urlparse
+                parsed_url = urlparse(spectrogram_path)
+                spectrogram_path = parsed_url.path
+
+            # Remove '/media/' prefix if present
+            if spectrogram_path.startswith('/media/'):
+                spectrogram_path = spectrogram_path.replace('/media/', '', 1)
 
             # Detailed parameter validation
             errors = []
@@ -946,9 +950,20 @@ def retrain_model(request):
             elif true_label not in [0, 1]:
                 errors.append("'true_label' must be 0 or 1")
             
-            # Optional: validate spectrogram path if needed
+            # Validate spectrogram path
             if not spectrogram_path:
-                errors.append("'spectrogram_path' is recommended")
+                errors.append("'spectrogram_path' is required")
+            
+            # Construct full local path
+            full_spectrogram_path = os.path.join(MEDIA_BASE_PATH, spectrogram_path)
+
+            # Validate file existence
+            if not os.path.exists(full_spectrogram_path):
+                errors.append(f"Spectrogram file not found: {full_spectrogram_path}")
+                logger.error(f"File not found: {full_spectrogram_path}")
+                logger.error(f"Original path: {data.get('spectrogram_path')}")
+                logger.error(f"Cleaned path: {spectrogram_path}")
+                logger.error(f"Media Base Path: {MEDIA_BASE_PATH}")
 
             # Return detailed error if any
             if errors:
@@ -958,21 +973,50 @@ def retrain_model(request):
                     'details': errors
                 }, status=400)
 
-            # Perform model retraining (placeholder logic)
+            # Dynamically import the correct retraining function
             try:
-                # Actual retraining logic would go here
-                logger.info(f"Retraining {model_type} model with label {true_label}")
+                # Select retraining function based on model type
+                if model_type == 'bnq':
+                    from predictors.BNBpredictor import manual_set_true_label_and_retrain as retrain_func
+                elif model_type == 'qnq':
+                    from predictors.QNQpredictor import manual_set_true_label_and_retrain as retrain_func
+                elif model_type == 'toot':
+                    from predictors.TOOTpredictor import manual_set_true_label_and_retrain as retrain_func
+                else:
+                    raise ValueError(f"Unsupported model type: {model_type}")
+
+                # Perform retraining
+                retrain_func(true_label, full_spectrogram_path)
                 
-                # Simulate successful retraining
+                # Optional: Send Discord notification about model retraining
+                try:
+                    notification_message = (
+                        f"🔄 Model Retraining Completed\n"
+                        f"Model: {model_type.upper()}\n"
+                        f"True Label: {true_label}\n"
+                        f"Spectrogram: {spectrogram_path}"
+                    )
+                    send_discord_message(notification_message)
+                except Exception as discord_error:
+                    logger.warning(f"Failed to send Discord notification for model retraining: {discord_error}")
+                
                 return JsonResponse({
                     'status': 'success', 
                     'message': f'{model_type.upper()} model retrained successfully',
                     'details': {
                         'model_type': model_type,
                         'true_label': true_label,
-                        'spectrogram_path': spectrogram_path
+                        'spectrogram_path': full_spectrogram_path
                     }
                 })
+            
+            except ImportError as import_error:
+                logger.error(f"Import error for {model_type} retraining: {import_error}")
+                return JsonResponse({
+                    'status': 'error', 
+                    'message': f'Failed to import retraining module for {model_type}',
+                    'details': str(import_error)
+                }, status=500)
             
             except Exception as retraining_error:
                 logger.error(f"Retraining error: {str(retraining_error)}")
@@ -990,7 +1034,6 @@ def retrain_model(request):
             }, status=405)
 
     except Exception as e:
-        # Catch-all error handler
         logger.error(f"Unexpected error in model retraining: {str(e)}")
         return JsonResponse({
             'status': 'error', 
@@ -1036,7 +1079,7 @@ def test_discord(request):
     """
     try:
         logger.info("Testing Discord notification")
-        message = "This is a test message from BeemoDos at " + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message = "This is a test message from BeemoDos"
         
         # Send the message to Discord
         result = send_discord_message(message)
@@ -1106,7 +1149,6 @@ def test_blynk_connection(request):
 
 import json
 import logging
-from datetime import datetime
 from .blynk_utils import blynk_connection  # Import the global Blynk connection
 
 logger = logging.getLogger(__name__)
@@ -1301,7 +1343,7 @@ def record_and_analyze_audio(request):
         sd.wait()
         
         # Save recording
-        audio_filename = f'bee_recording_{datetime.now().strftime("%Y%m%d_%H%M%S")}.wav'
+        audio_filename = f'bee_recording_{""}.wav'
         audio_path = os.path.join(settings.MEDIA_ROOT, audio_filename)
         
         # Ensure media directory exists

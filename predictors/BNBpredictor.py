@@ -2,11 +2,17 @@ import os
 import numpy as np
 import logging
 import sys
+import traceback
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 from sklearn.metrics import f1_score, precision_score
 from audio_analyzer.sheets_utils import save_prediction_to_sheets
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import pickle
+import os.path
 
 # Add project root to path
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -121,7 +127,6 @@ def predict_and_display(img_path, output_box=None):
     except Exception as e:
         logger.error(f"Prediction error for {img_path}: {e}")
         # Log the full traceback for debugging
-        import traceback
         logger.error(traceback.format_exc())
         return 0, 0.0, 0.0, 0.0
 
@@ -157,23 +162,69 @@ def retrain_model(model, new_data, new_labels):
 # Function to save results to Google Sheets
 def save_results_to_google_sheets(img_path, true_label, predicted_class, confidence, f1, precision, model_retrained=False):
     # Get current date and time
-    current_time = datetime.now()
-    date_str = current_time.strftime("%Y-%m-%d")
-    time_str = current_time.strftime("%H:%M:%S")
+    date_str = ""  # Removed datetime timestamp
+    time_str = ""  # Removed datetime timestamp
     
     # Convert all values to standard Python types
     confidence = float(confidence)  # Ensure confidence is a float
     f1 = float(f1)  # Ensure f1 is a float
     precision = float(precision)  # Ensure precision is a float
+    
+    # Logging the results
+    logger.info(f"Saving prediction results to Google Sheets")
+    logger.info(f"Image Path: {img_path}")
+    logger.info(f"True Label: {true_label}")
+    logger.info(f"Predicted Class: {predicted_class}")
+    logger.info(f"Confidence: {confidence}")
+    logger.info(f"F1 Score: {f1}")
+    logger.info(f"Precision: {precision}")
+    logger.info(f"Model Retrained: {'Yes' if model_retrained else 'No'}")
+    
+    try:
+        # Authenticate and get Google Sheets service
+        sheet = get_google_sheets_service()
+        
+        if sheet:
+            values = [[date_str, time_str, os.path.basename(img_path), true_label, predicted_class, confidence * 100, f1, precision, "Yes" if model_retrained else "No"]]
+            body = {'values': values}
+            result = sheet.values().append(
+                spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME,
+                valueInputOption="RAW", body=body).execute()
+            logger.info(f"{result.get('updates').get('updatedCells')} cells appended to Google Sheet.")
+    except Exception as e:
+        logger.error(f"Error saving results to Google Sheets: {e}")
+        logger.error(traceback.format_exc())
 
-    sheet = connect_to_google_sheets()
-    if sheet:
-        values = [[date_str, time_str, os.path.basename(img_path), true_label, predicted_class, confidence * 100, f1, precision, "Yes" if model_retrained else "No"]]
-        body = {'values': values}
-        result = sheet.values().append(
-            spreadsheetId=SPREADSHEET_ID, range=RANGE_NAME,
-            valueInputOption="RAW", body=body).execute()
-        logger.info(f"{result.get('updates').get('updatedCells')} cells appended to Google Sheet.")
+# Google Sheets parameters
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SPREADSHEET_ID = "1aJYoCKoo3bIkaeaC8A-AEqmNwyTzeFarOcxUo-i8cFk"
+RANGE_NAME = "Sheet1!A:H"  # Adjust the range according to your sheet
+
+# Function to authenticate and connect to Google Sheets
+def get_google_sheets_service():
+    # Update the path to the new credentials file
+    credentials_path = os.path.join(base_dir, 'BeemoApp', 'GsheetAPI', 'BNB-New-Client.json')
+    creds = None
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file(
+                credentials_path, SCOPES)
+            creds = flow.run_local_server(port=0)
+        with open('token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+
+    try:
+        service = build('sheets', 'v4', credentials=creds)
+        sheet = service.spreadsheets()
+        return sheet
+    except Exception as err:
+        logger.error(err)
+        return None
 
 # Function to manually set the true label and retrain if incorrect
 def manual_set_true_label_and_retrain(true_label, img_path):
@@ -183,22 +234,3 @@ def manual_set_true_label_and_retrain(true_label, img_path):
     predicted_class, confidence, f1, precision = predict_and_display(img_path, output_box=None)  # Make a prediction to get the metrics
     save_results_to_google_sheets(img_path, true_label, predicted_class, confidence, f1, precision, model_retrained=True)
     logger.info("Manual retraining completed.")
-
-# Google Sheets parameters
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-SPREADSHEET_ID = "1aJYoCKoo3bIkaeaC8A-AEqmNwyTzeFarOcxUo-i8cFk"
-RANGE_NAME = "Sheet1!A:H"  # Adjust the range according to your sheet
-
-# Function to authenticate and connect to Google Sheets
-def connect_to_google_sheets():
-    # Update the path to the new credentials file
-    credentials_path = os.path.join(base_dir, 'BeemoApp', 'GsheetAPI', 'BNB-New-Client.json')
-    creds = service_account.Credentials.from_service_account_file(credentials_path, scopes=SCOPES)
-    creds.refresh(Request())
-    try:
-        service = build('sheets', 'v4', credentials=creds)
-        sheet = service.spreadsheets()
-        return sheet
-    except Exception as err:
-        logger.error(err)
-        return None

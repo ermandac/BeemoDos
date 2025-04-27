@@ -102,7 +102,7 @@ class BeemoSheetsClient:
         try:
             # Prepare row data with timestamp
             row_data = [
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "",  # Timestamp replaced with empty string
                 frequency_data.get('dominant_frequency', 'N/A'),
                 frequency_data.get('frequency_range', 'N/A'),
                 frequency_data.get('spectral_centroid', 'N/A'),
@@ -144,7 +144,7 @@ class BeemoSheetsClient:
         try:
             # Prepare row data with timestamp
             row_data = [
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "",  # Timestamp replaced with empty string
                 prediction_data.get('filename', 'N/A'),
                 prediction_data.get('prediction', 'N/A'),
                 prediction_data.get('confidence', 'N/A')

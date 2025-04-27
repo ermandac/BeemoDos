@@ -82,9 +82,7 @@ class Command(BaseCommand):
             os.makedirs(settings.MEDIA_ROOT, exist_ok=True)
 
             # Generate unique filename for this recording
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            audio_filename = f"hourly_recording_{timestamp}.wav"
+            audio_filename = "hourly_recording_.wav"
             audio_path = os.path.join(settings.MEDIA_ROOT, audio_filename)
 
             # Record audio
