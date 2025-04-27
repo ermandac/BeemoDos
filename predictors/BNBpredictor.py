@@ -77,7 +77,7 @@ def predict_and_display(img_path, output_box=None):
     # Check if model is available
     if model is None:
         logger.error("No model available for prediction")
-        return 0, 0.0
+        return 0, 0.0, 0.0, 0.0
 
     try:
         # Load and preprocess the specific image
@@ -86,23 +86,27 @@ def predict_and_display(img_path, output_box=None):
         # Predict the class of the image
         pred = model.predict(img_array)
         
-        # Handle different prediction output shapes
+        # Robust confidence calculation
         if pred.ndim > 1 and pred.shape[1] > 1:
-            confidence = pred[0][1]  # Confidence for the positive class
-        elif pred.ndim == 1 or pred.shape[1] == 1:
-            confidence = pred[0][0]  # Use the first (and only) value
+            # Multi-class prediction (softmax output)
+            confidence = np.max(pred[0])
+            predicted_class = np.argmax(pred[0])
         else:
-            logger.error(f"Unexpected prediction shape: {pred.shape}")
-            return 0, 0.0
+            # Binary classification
+            confidence = pred[0][0]
+            predicted_class = 1 if confidence > 0.5 else 0
 
-        predicted_class = 1 if confidence > 0.5 else 0  # Threshold for binary classification
+        # Ensure confidence is between 0 and 1
+        confidence = max(0.0, min(1.0, confidence))
 
-        # Logging instead of GUI output
-        logger.info(f'File: {os.path.basename(img_path)}, Predicted: {class_names[predicted_class]}, Confidence: {confidence * 100:.2f}%')
+        # Logging
+        logger.info(f'File: {os.path.basename(img_path)}, '
+                    f'Predicted: {class_names[predicted_class]}, '
+                    f'Confidence: {confidence * 100:.2f}%')
 
-        # Calculate metrics (with a single prediction)
-        f1 = 0.0
-        precision = 0.0
+        # Placeholder metrics
+        f1 = confidence
+        precision = confidence
 
         # Save prediction to Google Sheets
         prediction_data = {
@@ -115,7 +119,10 @@ def predict_and_display(img_path, output_box=None):
         return predicted_class, confidence, f1, precision
 
     except Exception as e:
-        logger.error(f"Prediction error: {e}")
+        logger.error(f"Prediction error for {img_path}: {e}")
+        # Log the full traceback for debugging
+        import traceback
+        logger.error(traceback.format_exc())
         return 0, 0.0, 0.0, 0.0
 
 # Placeholder for other functions to maintain compatibility
@@ -142,7 +149,7 @@ def collect_new_data_and_labels(true_label, img_path):
 # Function to retrain the model incrementally
 def retrain_model(model, new_data, new_labels):
     logger.info("Starting retraining of BNB model...")
-    model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=Adam(learning_rate=0.01), loss='binary_crossentropy', metrics=['accuracy'])
     model.fit(new_data, new_labels, epochs=1, verbose=0)
     model.save(model_path)  # Save the updated model
     logger.info(f"BNB model retrained and saved to {model_path}")

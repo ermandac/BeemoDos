@@ -150,22 +150,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Create a device list display
                 const createDeviceListDisplay = (devices, title) => {
-                    if (!devices || devices.length === 0) return '';
-                    return `
-                        <div class="device-list">
-                            <h5>${title}</h5>
-                            <ul>
-                                ${devices.map(device => `
-                                    <li>
-                                        <strong>${device.name}</strong>
-                                        (Channels: ${device.max_input_channels}, 
-                                        Sample Rate: ${device.default_samplerate}, 
-                                        Host API: ${device.hostapi})
-                                    </li>
-                                `).join('')}
-                            </ul>
-                        </div>
-                    `;
+                    return '';
                 };
 
                 // Handle different response scenarios
@@ -185,16 +170,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             audioDeviceSelect.appendChild(option);
                         });
 
-                        recordingStatus.innerHTML = `
-                            <div class="alert alert-success">
-                                <strong>Physical Audio Devices Detected</strong>
-                                <br>
-                                ${data.message}
-                                ${createSystemInfoDisplay(data.system_info)}
-                                ${createDeviceListDisplay(data.devices, 'Physical Input Devices')}
-                                ${createDeviceListDisplay(data.all_devices, 'All Detected Devices')}
-                            </div>
-                        `;
+                        recordingStatus.innerHTML = '';
                         break;
 
                     case 'warning':
@@ -207,34 +183,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             option.textContent = 'RDP Virtual Audio Devices';
                             option.disabled = true;
                             
-                            recordingStatus.innerHTML = `
-                                <div class="alert alert-warning">
-                                    <strong>RDP Session Detected</strong>
-                                    <br>
-                                    ${data.message}
-                                    <br>
-                                    <strong>Diagnostic Hint:</strong> ${data.diagnostic_hint}
-                                    ${createSystemInfoDisplay(data.system_info)}
-                                    ${createDeviceListDisplay(data.rdp_virtual_devices, 'RDP Virtual Audio Devices')}
-                                    ${createDeviceListDisplay(data.all_devices, 'All Detected Devices')}
-                                </div>
-                            `;
+                            recordingStatus.innerHTML = '';
                         } else {
                             // Only system audio interfaces
                             option.textContent = 'No physical input devices';
                             option.disabled = true;
                             
-                            recordingStatus.innerHTML = `
-                                <div class="alert alert-warning">
-                                    <strong>No Physical Input Devices Detected</strong>
-                                    <br>
-                                    ${data.message}
-                                    <br>
-                                    <strong>Diagnostic Hint:</strong> ${data.diagnostic_hint}
-                                    ${createSystemInfoDisplay(data.system_info)}
-                                    ${createDeviceListDisplay(data.all_devices, 'Detected System Audio Interfaces')}
-                                </div>
-                            `;
+                            recordingStatus.innerHTML = '';
                         }
                         
                         audioDeviceSelect.appendChild(option);
@@ -248,16 +203,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         errorOption.disabled = true;
                         audioDeviceSelect.appendChild(errorOption);
                         
-                        recordingStatus.innerHTML = `
-                            <div class="alert alert-danger">
-                                <strong>Audio Device Detection Failed</strong>
-                                <br>
-                                ${data.message}
-                                <br>
-                                <strong>Diagnostic Hint:</strong> ${data.diagnostic_hint}
-                                ${createSystemInfoDisplay(data.system_info)}
-                            </div>
-                        `;
+                        recordingStatus.innerHTML = '';
                         break;
 
                     default:
@@ -378,11 +324,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const missingElements = validateSpectrogramElements();
         if (missingElements.length > 0) {
             console.error('Missing spectrogram elements:', missingElements);
-            recordingStatus.innerHTML = `
-                <div class="alert alert-danger">
-                    Error: Missing HTML elements: ${missingElements.join(', ')}
-                </div>
-            `;
+            recordingStatus.innerHTML = '';
             return;
         }
 
@@ -417,11 +359,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Validate inputs
         if (isNaN(duration) || duration <= 0) {
-            recordingStatus.innerHTML = `
-                <div class="alert alert-danger">
-                    Please enter a valid recording duration.
-                </div>
-            `;
+            recordingStatus.innerHTML = '';
             return;
         }
 
@@ -450,20 +388,12 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         } catch (error) {
             console.error('Fatal error during element preparation:', error);
-            recordingStatus.innerHTML = `
-                <div class="alert alert-danger">
-                    Error: ${error.message}
-                </div>
-            `;
+            recordingStatus.innerHTML = '';
             return;
         }
 
         // Update UI to show recording in progress
-        recordingStatus.innerHTML = `
-            <div class="alert alert-info">
-                Recording in progress for each predictor... Please wait.
-            </div>
-        `;
+        recordingStatus.innerHTML = '';
         recordButton.disabled = true;
 
         // Fetch multi-record endpoint
@@ -610,11 +540,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
 
                 // Update recording status
-                recordingStatus.innerHTML = `
-                    <div class="alert alert-success">
-                        Recording and analysis completed successfully!
-                    </div>
-                `;
+                recordingStatus.innerHTML = '';
             } else {
                 // Handle server-side error
                 throw new Error(data.message || 'Failed to record and analyze audio');
@@ -624,14 +550,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error recording audio:', error);
             
             // Update UI with error message
-            recordingStatus.innerHTML = `
-                <div class="alert alert-danger">
-                    <strong>Error recording audio:</strong> 
-                    ${error.message}
-                    <br>
-                    Please check your audio setup and try again.
-                </div>
-            `;
+            recordingStatus.innerHTML = '';
         })
         .finally(() => {
             // Re-enable record button
@@ -786,10 +705,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <label>Select the true label:</label>
                                 <div class="btn-group btn-group-toggle" data-toggle="buttons">
                                     <label class="btn btn-outline-primary">
-                                        <input type="radio" name="trueLabel" value="0" autocomplete="off"> Label 0
+                                        <input type="radio" name="trueLabel" value="0" autocomplete="off"> False
                                     </label>
                                     <label class="btn btn-outline-primary">
-                                        <input type="radio" name="trueLabel" value="1" autocomplete="off"> Label 1
+                                        <input type="radio" name="trueLabel" value="1" autocomplete="off"> True
                                     </label>
                                 </div>
                             </div>
@@ -895,10 +814,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <label class="d-block">Select the true label:</label>
                                 <div class="btn-group btn-group-toggle w-100" data-toggle="buttons">
                                     <label class="btn btn-outline-primary w-50">
-                                        <input type="radio" name="${predictor}TrueLabel" value="0" autocomplete="off"> Label 0
+                                        <input type="radio" name="${predictor}TrueLabel" value="0" autocomplete="off"> False
                                     </label>
                                     <label class="btn btn-outline-primary w-50">
-                                        <input type="radio" name="${predictor}TrueLabel" value="1" autocomplete="off"> Label 1
+                                        <input type="radio" name="${predictor}TrueLabel" value="1" autocomplete="off"> True
                                     </label>
                                 </div>
                             </div>
@@ -1195,8 +1114,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="form-inline">
                                     <select id="bnqTrueLabel" class="form-control mr-2">
                                         <option value="">Select Label</option>
-                                        <option value="0">Label 0</option>
-                                        <option value="1">Label 1</option>
+                                        <option value="0">False (No Bees)</option>
+                                        <option value="1">True (Bees Detected)</option>
                                     </select>
                                     <button id="bnqRetrainBtn" class="btn btn-warning btn-sm" data-model="bnq">
                                         Retrain
@@ -1210,8 +1129,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="form-inline">
                                     <select id="qnqTrueLabel" class="form-control mr-2">
                                         <option value="">Select Label</option>
-                                        <option value="0">Label 0</option>
-                                        <option value="1">Label 1</option>
+                                        <option value="0">False (No Queen)</option>
+                                        <option value="1">True (Queen Detected)</option>
                                     </select>
                                     <button id="qnqRetrainBtn" class="btn btn-warning btn-sm" data-model="qnq">
                                         Retrain
@@ -1225,8 +1144,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div class="form-inline">
                                     <select id="tootTrueLabel" class="form-control mr-2">
                                         <option value="">Select Label</option>
-                                        <option value="0">Label 0</option>
-                                        <option value="1">Label 1</option>
+                                        <option value="0">False (No Tooting)</option>
+                                        <option value="1">True (Tooting)</option>
                                     </select>
                                     <button id="tootRetrainBtn" class="btn btn-warning btn-sm" data-model="toot">
                                         Retrain
